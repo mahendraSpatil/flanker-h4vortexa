@@ -1,9 +1,15 @@
 // Owner: Mahendra | Upload -> draft -> confirm -> pending against the real schema.sql
 import assert from 'node:assert/strict';
-import { beforeEach, test } from 'node:test';
+import fs from 'node:fs';
+import { after, beforeEach, test } from 'node:test';
 import { canonicalJSON } from '@proofchain/core';
-import { createDocumentRegistry } from '../src/services/documentRegistry.js';
 import { auditRecorder, memoryStorage, openTestDb, sha256Hex, tinyPdf } from './documentHelpers.js';
+import { prepareTestEnv } from './helpers.js';
+
+// Every server test points server code at a temp DB + storage BEFORE importing it (CLAUDE.md).
+const { tempDir } = prepareTestEnv();
+after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+const { createDocumentRegistry } = await import('../src/services/documentRegistry.js');
 
 const NOW = new Date('2026-10-11T10:00:00');
 const SUGGESTIONS = {

@@ -1,7 +1,13 @@
 // Owner: Mahendra | AI suggestions: validated JSON, evidence required, OTHER mapping, timeout, fallback
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { suggestMetadata, validateAiOutput } from '../src/services/aiMetadata.js';
+import fs from 'node:fs';
+import { after, test } from 'node:test';
+import { prepareTestEnv } from './helpers.js';
+
+// Every server test points server code at a temp DB + storage BEFORE importing it (CLAUDE.md).
+const { tempDir } = prepareTestEnv();
+after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+const { suggestMetadata, validateAiOutput } = await import('../src/services/aiMetadata.js');
 
 const today = '2026-10-11';
 const TEXT = `PIMPRI INSTITUTE OF TECHNOLOGY

@@ -1,8 +1,14 @@
 // Owner: Mahendra | /api/explain service: templates per code, optional AI, never alters the verdict
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import fs from 'node:fs';
+import { after, test } from 'node:test';
 import { RESULT } from '@proofchain/core';
-import { TEMPLATES, explainResult } from '../src/services/explain.js';
+import { prepareTestEnv } from './helpers.js';
+
+// Every server test points server code at a temp DB + storage BEFORE importing it (CLAUDE.md).
+const { tempDir } = prepareTestEnv();
+after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+const { TEMPLATES, explainResult } = await import('../src/services/explain.js');
 
 const checks = [
   { id: '0', name: 'Proof format', pass: true },

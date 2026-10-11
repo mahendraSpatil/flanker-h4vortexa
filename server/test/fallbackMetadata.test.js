@@ -1,7 +1,13 @@
 // Owner: Mahendra | Rule-based suggestions (the path that must work fully with AI_MODE=off)
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { suggestMetadataByRules } from '../src/services/fallbackMetadata.js';
+import fs from 'node:fs';
+import { after, test } from 'node:test';
+import { prepareTestEnv } from './helpers.js';
+
+// Every server test points server code at a temp DB + storage BEFORE importing it (CLAUDE.md).
+const { tempDir } = prepareTestEnv();
+after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+const { suggestMetadataByRules } = await import('../src/services/fallbackMetadata.js');
 
 const today = '2026-10-11';
 const suggest = (text) => suggestMetadataByRules(text, { today });
