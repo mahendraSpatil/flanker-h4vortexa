@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   MAX_UPLOAD_BYTES,
+  hashUpload,
   parseListFilters,
   sanitizeFileName,
   validateConfirmFields,
   validateUpload,
 } from '../src/services/documentRules.js';
-import { JPEG_BYTES, PNG_BYTES, tinyPdf } from './helpers.js';
+import { JPEG_BYTES, PNG_BYTES, sha256Hex, tinyPdf } from './helpers.js';
 
 const code = (fn) => {
   try {
@@ -42,6 +43,17 @@ test('rejects missing, empty, oversized, unsupported and mismatched files', () =
   );
 });
 
+test('hashUpload uses core: raw bytes for PDF, text-v1 for .txt', () => {
+  const pdf = tinyPdf();
+  assert.deepEqual(hashUpload(pdf, { fileName: 'a.pdf', mime: 'application/pdf' }), {
+    fileHash: sha256Hex(pdf),
+    normalization: 'none',
+  });
+  const txt = hashUpload(Buffer.from('\uFEFFLine one  \r\nLine two\r\n\r\n'), { fileName: 'a.txt', mime: 'text/plain' });
+  assert.equal(txt.normalization, 'text-v1');
+  assert.equal(txt.fileHash, sha256Hex(Buffer.from('Line one\nLine two')), 'BOM, CRLF, trailing blanks and final newlines removed');
+});
+
 test('file names lose directories and control chars; latin1-mangled UTF-8 is recovered', () => {
   assert.equal(sanitizeFileName('C:\\Users\\x\\..\\slip.pdf'), 'slip.pdf');
   assert.equal(sanitizeFileName('../../etc/passwd.txt'), 'passwd.txt');
@@ -51,23 +63,25 @@ test('file names lose directories and control chars; latin1-mangled UTF-8 is rec
   assert.equal(sanitizeFileName(''), 'document');
 });
 
-test('confirm fields: enum docType, normalised issuer, real non-future ISO date', () => {
+test('confirm fields: core validateRecord rules + future-date check, issuer normalised', () => {
   const today = '2026-10-11';
-  const ok = validateConfirmFields(
-    { docType: 'SALARY_SLIP', issuer: '  Acme \t Pvt   Ltd ', date: '2026-10-11' },
-    { today },
-  );
-  assert.deepEqual(ok.value, { docType: 'SALARY_SLIP', issuer: 'Acme Pvt Ltd', date: '2026-10-11' });
+  const stored = { recordId: 'REC-000001', fileHash: '0x' + 'a'.repeat(64) };
+  const check = (body) => validateConfirmFields(stored, body, { today });
 
-  const bad = validateConfirmFields({ docType: 'PASSPORT', issuer: '   ', date: '2026-10-12' }, { today });
-  assert.equal(bad.value, null);
+  const ok = check({ docType: 'SALARY_SLIP', issuer: '  Acme \t Pvt   Ltd ', date: '2026-10-11' });
+  assert.deepEqual(ok.errors, {});
+  assert.deepEqual(ok.record, { ...stored, docType: 'SALARY_SLIP', issuer: 'Acme Pvt Ltd', date: '2026-10-11' });
+
+  const bad = check({ docType: 'PASSPORT', issuer: '   ', date: '2026-10-12' });
+  assert.equal(bad.record, null);
   assert.deepEqual(Object.keys(bad.errors).sort(), ['date', 'docType', 'issuer']);
   assert.match(bad.errors.date, /future/);
 
-  assert.match(validateConfirmFields({ docType: 'OTHER', issuer: 'X', date: '2026-02-30' }, { today }).errors.date, /calendar/);
-  assert.match(validateConfirmFields({ docType: 'OTHER', issuer: 'X', date: '14/06/2026' }, { today }).errors.date, /YYYY-MM-DD/);
-  assert.match(validateConfirmFields({ docType: 'OTHER', issuer: 'x'.repeat(121), date: '2026-01-01' }, { today }).errors.issuer, /120/);
-  assert.ok(validateConfirmFields(null, { today }).errors.docType);
+  assert.ok(check({ docType: 'OTHER', issuer: 'X', date: '2026-02-30' }).errors.date);
+  assert.ok(check({ docType: 'OTHER', issuer: 'X', date: '14/06/2026' }).errors.date);
+  assert.match(check({ docType: 'OTHER', issuer: 'x'.repeat(121), date: '2026-01-01' }).errors.issuer, /120/);
+  assert.ok(check(null).errors.docType);
+  assert.ok(check({ docType: 'OTHER', issuer: 42, date: '2026-01-01' }).errors.issuer);
 });
 
 test('list filters are validated; unknown keys ignored; recordId supported', () => {

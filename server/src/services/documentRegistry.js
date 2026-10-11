@@ -5,15 +5,7 @@
 import { AppError } from '../lib/errors.js';
 import { RECORD_ID } from '@proofchain/core';
 import { emptySuggestions, localIsoDate } from './fallbackMetadata.js';
-import {
-  canonicalOf,
-  computeFileHash,
-  computeLeaf,
-  coreRecordErrors,
-  detectNormalization,
-  validateConfirmFields,
-  validateUpload,
-} from './documentRules.js';
+import { buildLeaf, hashUpload, validateConfirmFields, validateUpload } from './documentRules.js';
 
 const MAX_RECORD_NUMBER = 999_999;
 
@@ -61,7 +53,7 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
 
   /**
    * POST /api/documents. Hash -> duplicate check -> store -> draft -> extract text -> suggestions.
-   * @returns {Promise<object>} { recordId, fileHash, status, suggestions, extractionPath, fileName, mime, warnings }
+   * @returns {Promise<object>} { recordId, fileHash, status, suggestions, extractionPath, fileName, mime, textMethod, warnings }
    */
   async function upload({ buffer, originalName, actor }) {
     let file;
@@ -72,9 +64,15 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
       throw err;
     }
 
-    // fileHash is computed from the raw bytes before anything else touches them.
-    const normalization = detectNormalization(file);
-    const { fileHash, hashSource } = computeFileHash(buffer, normalization);
+    // fileHash is computed from the raw bytes (text-v1 normalised for .txt) before anything else.
+    let hashed;
+    try {
+      hashed = hashUpload(buffer, file);
+    } catch (err) {
+      reject(actor, null, err, { fileName: file.fileName });
+      throw err;
+    }
+    const { fileHash, normalization } = hashed;
 
     const existing = sql.byHash.get(fileHash);
     if (existing) throw duplicate(actor, existing, fileHash, file.fileName);
@@ -83,11 +81,6 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
     const recordId = insertDraft({ fileHash, file, actor });
 
     const warnings = [];
-    if (hashSource === 'mock') {
-      warnings.push(
-        'Core hashing is not on main yet, so a temporary stub computed this fileHash. Re-upload after core lands (npm run reset).',
-      );
-    }
 
     // Text and suggestions organise the document only; they never enter a hash.
     const { text, textMethod } = await extractSafely(buffer, file.mime, warnings);
@@ -103,7 +96,7 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
       action: 'UPLOAD',
       target: recordId,
       outcome: 'OK',
-      detail: { fileHash, fileName: file.fileName, mime: file.mime, normalization, hashSource, extractionPath, textMethod },
+      detail: { fileHash, fileName: file.fileName, mime: file.mime, normalization, extractionPath, textMethod },
     });
 
     return {
@@ -114,6 +107,7 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
       extractionPath,
       fileName: file.fileName,
       mime: file.mime,
+      textMethod,
       warnings,
     };
   }
@@ -191,14 +185,14 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
       throw err;
     }
 
-    const { value, errors } = validateConfirmFields(body, { today: localIsoDate(now()) });
-    if (!value) throw validationError(actor, recordId, errors);
+    const { record, errors } = validateConfirmFields(
+      { recordId, fileHash: row.file_hash },
+      body,
+      { today: localIsoDate(now()) },
+    );
+    if (!record) throw validationError(actor, recordId, errors);
 
-    const record = { recordId, fileHash: row.file_hash, ...value };
-    const coreErrors = coreRecordErrors(record);
-    if (Object.keys(coreErrors).length > 0) throw validationError(actor, recordId, coreErrors);
-
-    const { leaf, hashSource } = computeLeaf(record);
+    const { leaf, canonical } = buildLeaf(record);
     const { changes } = sql.confirm.run(
       record.docType,
       record.issuer,
@@ -223,13 +217,12 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
       outcome: 'OK',
       detail: {
         leaf,
-        hashSource,
         reconfirmed: row.status === 'pending',
         editedFields: suggested ? ['docType', 'issuer', 'date'].filter((f) => suggested[f] !== record[f]) : null,
       },
     });
 
-    return { record: toRecord(sql.byId.get(recordId)), leaf, status: 'pending', canonical: canonicalOf(record) };
+    return { record: toRecord(sql.byId.get(recordId)), leaf, status: 'pending', canonical };
   }
 
   function validationError(actor, recordId, fields) {

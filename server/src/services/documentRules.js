@@ -1,14 +1,21 @@
 // Owner: Mahendra | Input rules for documents: upload sniffing, confirm-field validation, list filters, core bridge
 //
 // Pure functions only (no DB, no Express), so they are unit-testable without server/.env.
-import { createHash } from 'node:crypto';
-import * as core from '@proofchain/core';
-import { BATCH_ID, DOC_TYPES, FILE_NORMALIZATION, RECORD_ID, canonicalJSON, normText } from '@proofchain/core';
+import {
+  BATCH_ID,
+  DOC_TYPES,
+  ISSUER_MAX_LENGTH,
+  RECORD_ID,
+  canonicalJSON,
+  detectNormalization,
+  fileHash,
+  leafHash,
+  normText,
+  validateRecord,
+} from '@proofchain/core';
 import { AppError } from '../lib/errors.js';
-import { isValidIsoDate } from './fallbackMetadata.js';
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-export const ISSUER_MAX_CHARS = 120;
 export const RECORD_STATUSES = Object.freeze(['draft', 'pending', 'anchored']);
 const MAX_FILE_NAME_CHARS = 200;
 
@@ -106,42 +113,28 @@ export function sanitizeFileName(name) {
 // ---- confirm ------------------------------------------------------------------------------------
 
 /**
- * Validate the confirmed fields against the locked formats. The future-date check lives here
- * because core deliberately skips it (it depends on "today").
+ * Validate confirmed fields with core's validateRecord (locked formats) plus the future-date rule,
+ * which core deliberately leaves to the server so that verification never depends on today's date.
+ * Error messages are fragments ("is required", "must be YYYY-MM-DD") to read after the field label.
+ * @param {{ recordId: string, fileHash: string }} stored the draft's recordId and fileHash
  * @param {unknown} body request body { docType, issuer, date }
  * @param {{ today: string }} options today's local date, YYYY-MM-DD
- * @returns {{ value: { docType: string, issuer: string, date: string } | null, errors: Record<string,string> }}
+ * @returns {{ record: object | null, errors: Record<string, string> }} record is ready for leafHash
  */
-export function validateConfirmFields(body, { today }) {
-  const errors = {};
+export function validateConfirmFields(stored, body, { today }) {
   const input = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-  const { docType, issuer, date } = input;
+  const record = {
+    recordId: stored.recordId,
+    fileHash: stored.fileHash,
+    docType: input.docType,
+    issuer: typeof input.issuer === 'string' ? normText(input.issuer) : input.issuer,
+    date: input.date,
+  };
 
-  if (typeof docType !== 'string' || !DOC_TYPES.includes(docType)) {
-    errors.docType = `Choose one of: ${DOC_TYPES.join(', ')}`;
-  }
-
-  let cleanIssuer = '';
-  if (typeof issuer !== 'string') {
-    errors.issuer = 'Issuer is required';
-  } else {
-    cleanIssuer = normText(issuer);
-    const length = [...cleanIssuer].length;
-    if (length === 0) errors.issuer = 'Issuer is required';
-    else if (length > ISSUER_MAX_CHARS) errors.issuer = `Issuer must be at most ${ISSUER_MAX_CHARS} characters`;
-    else if (/\p{Cc}/u.test(cleanIssuer)) errors.issuer = 'Issuer contains control characters';
-  }
-
-  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    errors.date = 'Date must be YYYY-MM-DD';
-  } else if (!isValidIsoDate(date)) {
-    errors.date = 'Date is not a real calendar date';
-  } else if (date > today) {
-    errors.date = 'Date cannot be in the future';
-  }
-
-  if (Object.keys(errors).length > 0) return { value: null, errors };
-  return { value: { docType, issuer: cleanIssuer, date }, errors };
+  const { errors } = validateRecord(record);
+  if (!errors.date && record.date > today) errors.date = 'must not be in the future';
+  if (Object.keys(errors).length > 0) return { record: null, errors };
+  return { record, errors };
 }
 
 // ---- list filters -------------------------------------------------------------------------------
@@ -177,8 +170,8 @@ export function parseListFilters(query = {}) {
   }
   const issuer = read('issuer');
   if (issuer !== undefined) {
-    if (issuer.length <= ISSUER_MAX_CHARS) filters.issuer = normText(issuer);
-    else errors.issuer = `At most ${ISSUER_MAX_CHARS} characters`;
+    if (issuer.length <= ISSUER_MAX_LENGTH) filters.issuer = normText(issuer);
+    else errors.issuer = `At most ${ISSUER_MAX_LENGTH} characters`;
   }
   const batchId = read('batchId');
   if (batchId !== undefined) {
@@ -197,121 +190,29 @@ export function parseListFilters(query = {}) {
   return filters;
 }
 
-// ---- bridge to @proofchain/core -----------------------------------------------------------------
-//
-// fileHash, leafHash, detectNormalization and validateRecord come from @proofchain/core. Until
-// Archit's core lands they throw NOT_IMPLEMENTED (or do not exist yet); CLAUDE.md says Mahendra stubs
-// them meanwhile. The stub below follows the locked spec, is used ONLY while core is missing, and is
-// reported as hashSource "mock" in the API response and audit log. Delete it once core is on main.
+// ---- hashing via @proofchain/core ---------------------------------------------------------------
 
-let warnedAboutMock = false;
-
-function isNotImplemented(err) {
-  return err instanceof Error && err.message.startsWith('NOT_IMPLEMENTED');
-}
-
-function callCore(name, args) {
-  const fn = core[name];
-  if (typeof fn !== 'function') return { missing: true };
+/**
+ * fileHash of the raw upload, with the normalisation core picks ("text-v1" for .txt, else "none").
+ * @returns {{ fileHash: string, normalization: 'none' | 'text-v1' }}
+ * @throws {AppError} UNSUPPORTED_TYPE (415) when a .txt is not valid UTF-8
+ */
+export function hashUpload(buffer, { fileName, mime }) {
+  const normalization = detectNormalization({ fileName, mime });
   try {
-    return { value: fn(...args) };
+    return { fileHash: fileHash(buffer, { normalization }), normalization };
   } catch (err) {
-    if (isNotImplemented(err)) return { missing: true };
+    if (err.code === 'INVALID_TEXT_ENCODING') {
+      throw new AppError('UNSUPPORTED_TYPE', 415, 'Text files must be UTF-8 plain text', { detected: 'binary' });
+    }
     throw err;
   }
 }
 
-function noteMock(name) {
-  if (warnedAboutMock) return;
-  warnedAboutMock = true;
-  console.warn(
-    `[documents] @proofchain/core ${name} is not implemented yet: using the temporary stub in ` +
-      'services/documentRules.js. Pull main once core lands, then run npm run reset.',
-  );
-}
-
-/** "text-v1" for .txt, "none" otherwise. Prefers core.detectNormalization when it exists. */
-export function detectNormalization({ mime, fileName }) {
-  const result = callCore('detectNormalization', [{ mime, fileName }]);
-  // TODO(core lands): confirm detectNormalization's signature; anything unexpected uses the local rule.
-  if (!result.missing && Object.values(FILE_NORMALIZATION).includes(result.value)) return result.value;
-  return mime === 'text/plain' ? FILE_NORMALIZATION.TEXT_V1 : FILE_NORMALIZATION.NONE;
-}
-
 /**
- * fileHash of the raw upload via core.
- * @returns {{ fileHash: string, hashSource: 'core' | 'mock' }}
+ * Canonical record + leaf for a confirmed record, both from core (never re-implemented here).
+ * Call only after validateConfirmFields returned no errors.
  */
-export function computeFileHash(bytes, normalization) {
-  const result = callCore('fileHash', [new Uint8Array(bytes), { normalization }]);
-  if (!result.missing) return { fileHash: result.value, hashSource: 'core' };
-  noteMock('fileHash');
-  const input = normalization === FILE_NORMALIZATION.TEXT_V1 ? stubNormalizeText(bytes) : bytes;
-  return { fileHash: stubSha256Hex(input), hashSource: 'mock' };
-}
-
-/**
- * leaf for a confirmed record via core.
- * @returns {{ leaf: string, hashSource: 'core' | 'mock' }}
- */
-export function computeLeaf(record) {
-  const result = callCore('leafHash', [record]);
-  if (!result.missing) return { leaf: result.value, hashSource: 'core' };
-  noteMock('leafHash');
-  const json = Buffer.from(canonicalJSON(record), 'utf8');
-  return { leaf: stubSha256Hex(Buffer.concat([Buffer.from([0x00]), json])), hashSource: 'mock' };
-}
-
-/**
- * Run core.validateRecord when available and turn whatever it reports into field errors.
- * Tolerant of the exact return shape until core's signature is final (TODO(core lands)).
- * @returns {Record<string, string>} empty when the record is acceptable
- */
-export function coreRecordErrors(record) {
-  let result;
-  try {
-    result = callCore('validateRecord', [record]);
-  } catch (err) {
-    return { [err.field ?? 'record']: err.message };
-  }
-  if (result.missing) return {};
-  return interpretValidation(result.value);
-}
-
-function interpretValidation(value) {
-  if (value === undefined || value === null || value === true) return {};
-  if (value === false) return { record: 'Record rejected by core validation' };
-  if (Array.isArray(value)) return listToFields(value);
-  if (typeof value === 'object') {
-    const errors = value.errors ?? value.fields;
-    if (Array.isArray(errors)) return listToFields(errors);
-    if (errors && typeof errors === 'object' && Object.keys(errors).length > 0) return { ...errors };
-    if (value.ok === false || value.valid === false) return { record: 'Record rejected by core validation' };
-  }
-  return {};
-}
-
-function listToFields(list) {
-  const fields = {};
-  for (const item of list) {
-    if (item && typeof item === 'object') fields[item.field ?? 'record'] = item.message ?? String(item);
-    else fields.record = fields.record ? `${fields.record}; ${item}` : String(item);
-  }
-  return fields;
-}
-
-// TEMPORARY stub of the locked spec (CLAUDE.md "Hashing"), used only while core is missing.
-function stubSha256Hex(bytes) {
-  return '0x' + createHash('sha256').update(bytes).digest('hex');
-}
-
-function stubNormalizeText(bytes) {
-  const text = new TextDecoder('utf-8').decode(bytes);
-  const normalised = text.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').normalize('NFC');
-  return Buffer.from(normalised, 'utf8');
-}
-
-/** Exposed for the record shape: what exactly goes into the leaf. */
-export function canonicalOf(record) {
-  return canonicalJSON(record);
+export function buildLeaf(record) {
+  return { canonical: canonicalJSON(record), leaf: leafHash(record) };
 }

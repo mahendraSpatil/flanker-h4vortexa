@@ -85,10 +85,11 @@ test('duplicate upload -> 409 DUPLICATE with the existing recordId and batch', a
 });
 
 test('.txt is normalised before hashing: CRLF and trailing spaces do not create a new record', async () => {
-  const lf = Buffer.from('Offer Letter\nNimbus Solutions Limited\n', 'utf8');
+  const lf = Buffer.from('Offer Letter\nNimbus Solutions Limited', 'utf8');
   const crlf = Buffer.from('Offer Letter  \r\nNimbus Solutions Limited\r\n', 'utf8');
   const first = await upload(lf, 'offer.txt');
   assert.equal(first.mime, 'text/plain');
+  assert.equal(first.textMethod, 'pdf-text', 'textMethod comes from the extractor');
   assert.equal(first.fileHash, sha256Hex(lf), 'already-normal text hashes to its own bytes');
 
   const err = await rejection(upload(crlf, 'offer-windows.txt'));
@@ -124,7 +125,7 @@ test('extraction failure still creates the draft, with a warning and fallback su
   assert.ok(result.warnings.some((w) => /extraction failed/i.test(w)));
 });
 
-test('confirm validates, builds the canonical record + leaf from core rules, -> pending', async () => {
+test('confirm validates, builds the canonical record + leaf with core, -> pending', async () => {
   const { recordId, fileHash } = await upload(tinyPdf('confirm'));
   const result = registry.confirm(
     recordId,
