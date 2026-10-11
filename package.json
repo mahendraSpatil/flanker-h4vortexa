@@ -1,0 +1,31 @@
+{
+  "name": "proofchain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ProofChain: verifiable document registry with Merkle proofs anchored on a write-once contract (VORTEXA 3.0, B-01)",
+  "workspaces": [
+    "core",
+    "contracts",
+    "server",
+    "web",
+    "verifier"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "chain": "npm run node -w contracts",
+    "deploy": "npm run deploy -w contracts",
+    "reset": "node scripts/reset.js",
+    "server": "npm run dev -w server",
+    "web": "npm run dev -w web",
+    "verifier": "npm run dev -w verifier",
+    "seed": "node scripts/seed.js",
+    "test": "npm test -w core && npm test -w contracts",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10"
+  }
+}

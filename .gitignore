@@ -1,0 +1,27 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.log
+
+# Secrets (keep the example)
+.env
+.env.*
+!.env.example
+
+# Hardhat build output
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+
+# Runtime data: SQLite database and uploaded files
+server/data/*
+!server/data/.gitkeep
+server/storage/*
+!server/storage/.gitkeep
+
+# OS and editor junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp

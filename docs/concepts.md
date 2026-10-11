@@ -227,7 +227,7 @@ The exact `proof.json` format, record schema and API are defined in [`CLAUDE.md`
 4. Verify a forged copy (₹50,000 changed to ₹80,000) with the same proof → `DOCUMENT_MODIFIED`.
 5. Verify the forged copy with a fully recomputed proof → passes checks 1–3, fails with `ROOT_MISMATCH`.
 6. Edit the issuer in the registry database → the audit flags the batch and the record; the verifier still rejects the forged document.
-7. Explain a failure with AI, then set `AI_MODE=off` and show the verdict is unchanged.
+7. Set `AI_MODE=off`: metadata extraction falls back to rules, and every verification result is unchanged.
 
 ---
 

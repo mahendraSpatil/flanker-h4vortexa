@@ -1,0 +1,14 @@
+# Spec and docs are hand-formatted; never rewrite them
+*.md
+
+# Generated or binary
+package-lock.json
+shared/deployment.json
+dist/
+coverage/
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+server/data/
+server/storage/
+samples/

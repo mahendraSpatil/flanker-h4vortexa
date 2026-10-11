@@ -1,0 +1,16 @@
+{
+  "name": "@proofchain/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Canonical JSON, hashing, Merkle trees, proofs and verification shared by server and verifier",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.4.0"
+  }
+}

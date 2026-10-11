@@ -1,0 +1,24 @@
+{
+  "name": "@proofchain/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Registry API: upload, confirm, seal, proofs, audit (Express + SQLite)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@google/genai": "^2.28.0",
+    "@proofchain/core": "*",
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.7",
+    "ethers": "^6.17.0",
+    "express": "^5.3.0",
+    "multer": "^2.4.0",
+    "pdf-parse": "^2.4.5",
+    "tesseract.js": "^7.0.0"
+  }
+}

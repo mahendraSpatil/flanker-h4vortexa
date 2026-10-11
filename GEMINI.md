@@ -42,7 +42,7 @@ A document moves through three states: `draft` (uploaded) → `pending` (metadat
 12. The user drops in the **document** + its **proof.json**.
 13. The verifier hashes the file in the browser and reads `getBatch(batchId)` **directly from the pinned contract**.
 14. It runs checks 0–4 (see Verification) and shows every check with computed vs expected values.
-15. A plain-language explanation of any failure is shown (template; optional AI). It never changes the result.
+15. A plain-language explanation of any failure is shown (deterministic template inside the verifier; no AI, no server call). It never changes the result.
 
 **Integrity audit (server)**
 
@@ -283,7 +283,7 @@ proofchain/
   docs/concepts.md        # background and design reasoning
   core/                   # @proofchain/core: constants, canonical, hash, merkle, proof, verify (+ tests)
   contracts/              # Hardhat 2 (CommonJS package): RootRegistry.sol, scripts/deploy.js, test/
-  shared/deployment.json  # written by deploy, committed: { chainId, address, abi, deployedAt }
+  shared/deployment.json  # written by deploy, committed: { chainId, address, abi }
   server/                 # Express API + SQLite + AI + storage/
   web/                    # React registry app (upload, confirm, records, batches, audit, demo)
   verifier/               # separate React app; talks ONLY to the chain, never to server
@@ -297,7 +297,7 @@ proofchain/
 | Chain | Hardhat 2 + ethers v6 | Local, free |
 | Server | Express, `better-sqlite3`, `multer` | Synchronous SQLite, zero setup |
 | Text | `pdf-parse`, `tesseract.js` | Pure JS; no system Tesseract install |
-| AI | Gemini API free tier (`@google/generative-ai`) + regex fallback | Free; fallback satisfies the local-fallback rule |
+| AI | Gemini API free tier (`@google/genai`) + regex fallback | Free; fallback satisfies the local-fallback rule |
 | Frontends | React + Vite + Tailwind v4 + react-router-dom | Team already knows it |
 
 | Service | Port | Command |
@@ -417,7 +417,7 @@ Edit only files you own. Every source file starts with `// Owner: <name> | <purp
 - [ ] Text extraction: pdf-parse, then tesseract.js for images and scans
 - [ ] AI metadata extraction (Gemini, JSON-only, validated, 8 s timeout) + regex/keyword fallback + `AI_MODE=off`
 - [ ] `POST /api/documents/:id/confirm` with validation, canonical record + leaf, status `pending`
-- [ ] `GET /api/documents`, `GET /api/documents/:id/file`, `POST /api/explain` (AI + template fallback)
+- [ ] `GET /api/documents`, `GET /api/documents/:id/file`; stretch: `POST /api/explain` (registry app only)
 - [ ] Registry web: Upload page and Confirm screen (suggestion, confidence, evidence line, editable field per value)
 - [ ] Stretch: receipt PDF with QR
 

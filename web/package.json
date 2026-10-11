@@ -1,0 +1,24 @@
+{
+  "name": "@proofchain/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Registry app: upload, confirm, records, batches, audit, tamper demo",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@proofchain/core": "*",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.2",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.4"
+  }
+}

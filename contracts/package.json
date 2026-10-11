@@ -1,0 +1,18 @@
+{
+  "name": "@proofchain/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "RootRegistry: write-once, publisher-only store of batch Merkle roots (Hardhat 2)",
+  "scripts": {
+    "node": "hardhat node",
+    "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy.js --network localhost",
+    "test": "hardhat test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "ethers": "^6.17.0",
+    "hardhat": "^2.29.1"
+  }
+}
