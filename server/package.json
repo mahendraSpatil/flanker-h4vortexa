@@ -7,7 +7,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test:server": "node --test --test-concurrency=1 \"test/*.test.js\""
   },
   "dependencies": {
     "@google/genai": "^2.28.0",
