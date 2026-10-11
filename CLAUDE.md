@@ -344,7 +344,7 @@ Frontend and backend work in parallel against this contract; frontends start wit
 | Method + path | Body | Returns | Owner |
 | --- | --- | --- | --- |
 | `GET /api/health` | — | `{ ok, chain, aiMode, contract }` | Archit |
-| `POST /api/documents` | multipart `file` | 201 `{ recordId, fileHash, fileName, mime, status:"draft", suggestions:{ docType, issuer, date, confidence:{...}, evidence:{...} }, extractionPath:"ai"\|"fallback", textMethod:"pdf-text"\|"ocr"\|"plain"\|null, warnings:[string] }`; 400 `NO_FILE` / `EMPTY_FILE` / `UPLOAD_INVALID`; 413 `FILE_TOO_LARGE`; 415 `UNSUPPORTED_TYPE` (also used for `INVALID_TEXT_ENCODING`); 409 `DUPLICATE` with `{ recordId, batchId, status }` | Mahendra |
+| `POST /api/documents` | multipart `file` | 201 `{ recordId, fileHash, fileName, mime, status:"draft", suggestions:{ docType, issuer, date, confidence:{...}, evidence:{...} }, extractionPath:"ai"\|"fallback", textMethod:"pdf-text"\|"ocr"\|"plain"\|null, warnings:[string] }`; 400 `NO_FILE` / `EMPTY_FILE` / `UPLOAD_INVALID`; 413 `FILE_TOO_LARGE`; 415 `UNSUPPORTED_TYPE` (not an allowed type, or binary content in a .txt); 415 `INVALID_TEXT_ENCODING` (a .txt that is not valid UTF-8); 409 `DUPLICATE` with `{ recordId, batchId, status }` | Mahendra |
 | `POST /api/documents/:recordId/confirm` | `{ docType, issuer, date }` | `{ record, leaf, status:"pending", canonical }` (`canonical` = the exact text that was hashed); 400 `VALIDATION` with details `{ fields:{ docType?, issuer?, date? } }`; 409 `ALREADY_ANCHORED`; a `pending` record may be re-confirmed until it is sealed | Mahendra |
 | `GET /api/documents` | query `status, docType, issuer, batchId, recordId` | `[ record ]` | Mahendra |
 | `GET /api/documents/:recordId/file` | — | the stored file | Mahendra |
