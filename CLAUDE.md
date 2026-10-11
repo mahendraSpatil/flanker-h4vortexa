@@ -536,3 +536,33 @@ Repo: https://github.com/mahendraSpatil/flanker-h4vortexa
 - Do not run git commands (no add, commit, push, checkout). Humans commit.
 - Senior-quality code: small functions, clear names, input validation at every boundary, explicit error codes, brief comments only where non-obvious.
 - Work in small steps. After each step, say what to run to check it works.
+
+
+## UI guidelines
+
+Visual reference: the "ProofChain UI Screens" canvas Archit shared (8 screens). Match its layout, states and data shapes; it is the target look, not a pixel spec.
+
+One look across both apps, even though three people and two AI tools build them.
+
+**Direction:** calm, audit-grade, technical. Light theme only. White cards on a slate-50 background, slate text, one accent (indigo-600) for primary actions and links. Emerald-600 and rose-600 mean pass/fail only; amber-500 only for pending/warnings; slate-400 for skipped. IBM Plex Sans for text and IBM Plex Mono for every hash, ID and address (one Google Fonts link in each app's index.html; system fonts as fallback).
+
+**Shared UI kit** (owner: Neel). Master copy in `web/src/components/ui/`, identical copy in `verifier/src/components/ui/`. Build these before pages:
+
+| Component | Purpose |
+| --- | --- |
+| Button | primary / secondary / danger, loading state |
+| Card | white panel with title and optional actions |
+| Badge | fixed colour per status: draft, pending, anchored, OK, MISMATCH, pass, fail, skipped |
+| Hash | middle-truncated monospace hash (0x9b2c…e41a), full value on hover, copy button |
+| FileDrop | drag-and-drop or click, shows name and size, accept list |
+| DataTable | simple table with an empty state |
+| Alert | shows an ApiError's code + message; info/success/error variants |
+| Spinner, EmptyState | loading and nothing-yet states |
+
+**Hero screens (spend polish here):**
+- **Verifier:** verdict banner (VALID or the failure code, plus one plain sentence), then the 7 checks as a vertical list with computed vs expected hashes (highlight the first differing character), then the Merkle path drawn as a chain from the leaf through each sibling up to the on-chain root.
+- **Confirm (registry):** document preview on the left (PDF in an iframe, image as img, text as pre); on the right one field per value showing the AI suggestion, a confidence bar, the quoted evidence line, and an "AI" or "Rules" tag for the extraction path.
+- **Audit:** one row per batch; MISMATCH rows in red listing changed records and files.
+- **Demo:** large labelled buttons per tamper type and restore, last result shown below.
+
+**Rules:** every page handles loading, empty and error states. Never show a green tick without the hashes behind it. Target 1280 px wide; mobile not required. Tailwind only, plus `lucide-react` for icons; no other UI libraries.
