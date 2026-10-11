@@ -29,8 +29,8 @@ import {
 
 export const AI_TIMEOUT_MS = 8000;
 export const AI_INPUT_CHARS = 4000;
-/** Override with GEMINI_MODEL in server/.env if Google retires this free-tier model. */
-export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+/** Override with GEMINI_MODEL in server/.env. gemini-2.5-flash was retired for new API keys (404). */
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 const FIELDS = ['docType', 'issuer', 'date'];
 const OTHER_MAX_CONFIDENCE = 0.3;
 const MAX_RAW_CHARS = 4000;
