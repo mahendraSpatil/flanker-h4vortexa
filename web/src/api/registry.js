@@ -12,12 +12,19 @@ export function seal() {
   return request('/api/batches/seal', { method: 'POST' });
 }
 
-/** GET /api/batches -> [ { batchId, root, leafCount, txHash, blockNumber, publishedAt } ]. */
+/**
+ * GET /api/batches -> [ { batchId, root, leafCount, txHash, blockNumber, publishedAt,
+ * records: [recordId] } ] newest first.
+ */
 export function listBatches() {
   return request('/api/batches');
 }
 
-/** POST /api/audit -> { batches: [ { batchId, status, dbRoot, chainRoot, changedRecords } ] }. */
+/**
+ * POST /api/audit (read-only) -> { checkedAt, batches: [ { batchId, status: "OK" | "MISMATCH",
+ * dbRoot, storedRoot, chainRoot, leafCount, chainLeafCount, changedRecords: [recordId],
+ * changedFiles: [recordId] } ], onChainOnly: [batchId] } (503 CHAIN_UNREACHABLE).
+ */
 export function runAudit() {
   return request('/api/audit', { method: 'POST' });
 }
@@ -27,7 +34,10 @@ export function getAuditLog() {
   return request('/api/audit-log');
 }
 
-/** POST /api/demo/tamper. type: "stored_file" | "db_metadata" -> { ok: true, detail }. */
+/**
+ * POST /api/demo/tamper. type: "stored_file" | "db_metadata" | "restore" -> { ok: true, detail }.
+ * "restore" undoes the record's latest tamper.
+ */
 export function tamper({ type, recordId }) {
   return request('/api/demo/tamper', { method: 'POST', json: { type, recordId } });
 }

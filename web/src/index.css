@@ -1,2 +1,7 @@
 /* Owner: Archit (frozen; ask before changing) | Tailwind v4 entry for the registry app */
 @import 'tailwindcss';
+
+@theme {
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}

@@ -43,6 +43,7 @@ export default function Audit() {
   }
 
   const batches = auditResult?.batches || [];
+  const onChainOnly = auditResult?.onChainOnly || [];
   const mismatchBatches = batches.filter((b) => b.status === 'MISMATCH');
   const hasRun = auditResult !== null;
 
@@ -55,7 +56,8 @@ export default function Audit() {
             Integrity Audit
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Recomputes every batch root from the database and compares it with the immutable root on-chain.
+            Recomputes every batch root from the database and compares it with the immutable root
+            on-chain.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -80,12 +82,7 @@ export default function Audit() {
       </div>
 
       {error && (
-        <Alert
-          variant="error"
-          title="Audit Error"
-          message={error}
-          onClose={() => setError(null)}
-        />
+        <Alert variant="error" title="Audit Error" message={error} onClose={() => setError(null)} />
       )}
 
       {/* Mismatch Alert Banner */}
@@ -107,8 +104,8 @@ export default function Audit() {
               {mismatchBatches.length} of {batches.length} batch roots do not match the blockchain
             </h2>
             <p className="mt-1 text-xs sm:text-sm text-rose-800 leading-relaxed">
-              A database record or stored file was modified after publishing. The on-chain root is untouched,
-              so the independent verifier will catch any forged document.
+              A database record or stored file was modified after publishing. The on-chain root is
+              untouched, so the independent verifier will catch any forged document.
             </p>
           </div>
         </div>
@@ -132,7 +129,8 @@ export default function Audit() {
               All {batches.length} batches match their published on-chain roots
             </h2>
             <p className="mt-1 text-xs sm:text-sm text-emerald-800 leading-relaxed">
-              Every record in SQLite hashes precisely to the Merkle root stored in the RootRegistry contract.
+              Every record in SQLite hashes precisely to the Merkle root stored in the RootRegistry
+              contract.
             </p>
           </div>
         </div>
@@ -146,7 +144,8 @@ export default function Audit() {
       >
         {!hasRun ? (
           <div className="p-8 text-center text-xs sm:text-sm text-slate-500">
-            Click <strong className="text-slate-800">"Run audit"</strong> above to recompute all Merkle trees and check against the chain.
+            Click <strong className="text-slate-800">"Run audit"</strong> above to recompute all
+            Merkle trees and check against the chain.
           </div>
         ) : batches.length === 0 ? (
           <div className="p-8 text-center text-xs sm:text-sm text-slate-500">
@@ -161,6 +160,7 @@ export default function Audit() {
                 <th className="px-4 py-3">Recomputed DB Root</th>
                 <th className="px-4 py-3">On-Chain Root</th>
                 <th className="px-4 py-3">Changed Records</th>
+                <th className="px-4 py-3">Changed Files</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -197,6 +197,23 @@ export default function Audit() {
                         <span className="text-emerald-700 font-semibold">None (clean)</span>
                       )}
                     </td>
+                    <td className="px-4 py-3">
+                      {b.changedFiles && b.changedFiles.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {b.changedFiles.map((rec) => (
+                            <span
+                              key={rec}
+                              className="inline-flex items-center gap-1 text-xs text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded"
+                            >
+                              <span className="font-mono font-bold">{rec}</span>
+                              file changed
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-emerald-700 font-semibold">None (intact)</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -204,6 +221,18 @@ export default function Audit() {
           </table>
         )}
       </Card>
+
+      {hasRun && (
+        <p className="text-xs sm:text-sm text-slate-600">
+          On-chain batches missing from the database:{' '}
+          {onChainOnly.length > 0 ? (
+            <span className="font-mono font-bold text-rose-700">{onChainOnly.join(', ')}</span>
+          ) : (
+            'none'
+          )}
+          .
+        </p>
+      )}
 
       {/* Audit Activity Log */}
       <Card
@@ -250,14 +279,17 @@ export default function Audit() {
                         log.outcome === 'OK' || log.outcome === 'pass'
                           ? 'text-emerald-700'
                           : log.outcome === 'FAIL' || log.outcome === 'TAMPERED'
-                          ? 'text-rose-700'
-                          : 'text-slate-600'
+                            ? 'text-rose-700'
+                            : 'text-slate-600'
                       }`}
                     >
                       {log.outcome || '—'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 max-w-[280px] truncate text-slate-600" title={log.detail}>
+                  <td
+                    className="px-4 py-3 max-w-[280px] truncate text-slate-600"
+                    title={log.detail}
+                  >
                     {log.detail || '—'}
                   </td>
                 </tr>

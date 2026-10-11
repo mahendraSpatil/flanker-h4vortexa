@@ -8,7 +8,7 @@
     "node": "hardhat node",
     "compile": "hardhat compile",
     "deploy": "hardhat run scripts/deploy.js --network localhost",
-    "test": "hardhat test"
+    "test": "node scripts/test.js"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

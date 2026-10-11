@@ -1,6 +1,6 @@
 // Owner: Neel | Independent Verifier app: drop zones, on-chain lookup, 7 checks, Merkle path, and verdict banner
 import { useState, useEffect } from 'react';
-import { verify, nodeHash } from '@proofchain/core';
+import { verify, nodeHash, BATCH_ID } from '@proofchain/core';
 import { getBatch, getBlockNumber } from './chain.js';
 import { PINNED } from './config.js';
 import Button from './components/ui/Button.jsx';
@@ -57,27 +57,52 @@ function useChainStatus() {
 
 /** Compute step-by-step nodes along the Merkle folding path for visualization */
 function computePathSteps(computedLeaf, proof) {
-  if (!computedLeaf || !proof || !Array.isArray(proof.siblings)) return [];
-  const steps = [];
-  let currentHash = computedLeaf.toLowerCase();
+  // Display only: a hashing error here must never turn into a verification error
+  try {
+    if (!computedLeaf || !proof || !Array.isArray(proof.siblings)) return [];
+    const steps = [];
+    let currentHash = computedLeaf.toLowerCase();
 
-  for (let i = 0; i < proof.siblings.length; i++) {
-    const sib = proof.siblings[i];
-    const isLeft = sib.pos === 'left';
-    const nextHash = isLeft
-      ? nodeHash(sib.hash, currentHash)
-      : nodeHash(currentHash, sib.hash);
+    for (let i = 0; i < proof.siblings.length; i++) {
+      const sib = proof.siblings[i];
+      const isLeft = sib.pos === 'left';
+      const nextHash = isLeft ? nodeHash(sib.hash, currentHash) : nodeHash(currentHash, sib.hash);
 
-    steps.push({
-      level: i + 1,
-      currentHash,
-      siblingHash: sib.hash,
-      pos: sib.pos,
-      nextHash,
-    });
-    currentHash = nextHash;
+      steps.push({
+        level: i + 1,
+        currentHash,
+        siblingHash: sib.hash,
+        pos: sib.pos,
+        nextHash,
+      });
+      currentHash = nextHash;
+    }
+    return steps;
+  } catch {
+    return [];
   }
-  return steps;
+}
+
+/**
+ * Split `value` around its first character that differs from `other`, for highlighting.
+ * `diff` is '' when the strings are equal or `value` ends before they differ.
+ */
+function splitAtFirstDiff(value, other) {
+  let i = 0;
+  while (i < value.length && i < other.length && value[i] === other[i]) i++;
+  return { before: value.slice(0, i), diff: value.slice(i, i + 1), after: value.slice(i + 1) };
+}
+
+/** `value` with its first character that differs from `other` highlighted in rose. */
+function DiffText({ value, other }) {
+  const { before, diff, after } = splitAtFirstDiff(value, other);
+  return (
+    <>
+      {before}
+      {diff && <span className="bg-rose-200 text-rose-900 rounded-xs px-px">{diff}</span>}
+      {after}
+    </>
+  );
 }
 
 export default function App() {
@@ -115,14 +140,20 @@ export default function App() {
         proof = null;
       }
 
-      // 3. Fetch on-chain batch from the pinned contract
+      // 3. Fetch on-chain batch from the pinned contract. A malformed batchId is left to check 0.
+      // null means "unpublished", so a chain error must stop here instead of becoming null.
       let chainBatch = null;
-      if (proof && typeof proof.batchId === 'string' && proof.batchId.length <= 31) {
+      if (typeof proof?.batchId === 'string' && BATCH_ID.test(proof.batchId)) {
         try {
           chainBatch = await getBatch(proof.batchId);
-        } catch {
-          // If chain is unreachable or call fails, chainBatch remains null
-          chainBatch = null;
+        } catch (err) {
+          console.error('Chain read failed:', err);
+          setVerificationResult(null);
+          setVerificationError({
+            title: `Chain unreachable: cannot read the published root for ${proof.batchId}`,
+            message: `No verdict without the on-chain root. Check that the chain at ${PINNED.rpcUrl} is running, then verify again.`,
+          });
+          return;
         }
       }
 
@@ -134,18 +165,25 @@ export default function App() {
         pinned: PINNED,
       });
 
-      // 5. Calculate path visualization steps if leaf is computable
-      const pathSteps = computePathSteps(result.computed?.leaf || proof?.leaf, proof);
+      // 5. Path steps and proof details only for a well-formed proof (check 0 passed); a
+      // malformed proof's fields are never rendered, so it always ends as FORMAT_INVALID
+      const formatOk = result.checks.find((c) => c.id === '0')?.pass === true;
+      const pathSteps = formatOk
+        ? computePathSteps(result.computed?.leaf || proof.leaf, proof)
+        : [];
 
       setVerificationResult({
         ...result,
-        proof,
+        proof: formatOk ? proof : null,
         chainBatch,
         pathSteps,
       });
     } catch (err) {
       console.error('Verification error:', err);
-      setVerificationError(err.message || 'An unexpected verification error occurred');
+      setVerificationError({
+        title: 'Verification Failed to Execute',
+        message: err.message || 'An unexpected verification error occurred',
+      });
     } finally {
       setIsVerifying(false);
     }
@@ -200,8 +238,8 @@ export default function App() {
                 chain.state === 'up'
                   ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
                   : chain.state === 'down'
-                  ? 'bg-rose-950 text-rose-300 border border-rose-800'
-                  : 'bg-slate-800 text-slate-300'
+                    ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                    : 'bg-slate-800 text-slate-300'
               }`}
             >
               <span
@@ -209,15 +247,15 @@ export default function App() {
                   chain.state === 'up'
                     ? 'bg-emerald-400 animate-pulse'
                     : chain.state === 'down'
-                    ? 'bg-rose-400'
-                    : 'bg-slate-400'
+                      ? 'bg-rose-400'
+                      : 'bg-slate-400'
                 }`}
               />
               {chain.state === 'up'
                 ? `Chain connected (block ${chain.blockNumber})`
                 : chain.state === 'down'
-                ? 'Chain offline (8545)'
-                : 'Connecting...'}
+                  ? 'Chain offline (8545)'
+                  : 'Connecting...'}
             </span>
           </div>
         </div>
@@ -231,8 +269,12 @@ export default function App() {
             Verify a Document
           </h1>
           <p className="mt-1.5 text-sm sm:text-base text-slate-600 max-w-2xl leading-relaxed">
-            Drop the document and its <code className="text-xs bg-slate-200/80 px-1 py-0.5 rounded font-mono">proof.json</code>.
-            The Merkle root is read straight from the write-once blockchain contract; this app never contacts the registry database.
+            Drop the document and its{' '}
+            <code className="text-xs bg-slate-200/80 px-1 py-0.5 rounded font-mono">
+              proof.json
+            </code>
+            . The Merkle root is read straight from the write-once blockchain contract; this app
+            never contacts the registry database.
           </p>
         </div>
 
@@ -279,8 +321,8 @@ export default function App() {
         {verificationError && (
           <Alert
             variant="error"
-            title="Verification Failed to Execute"
-            message={verificationError}
+            title={verificationError.title}
+            message={verificationError.message}
             className="mb-8"
           />
         )}
@@ -434,8 +476,8 @@ export default function App() {
                                   isCheckPass
                                     ? 'text-emerald-700'
                                     : isCheckFail
-                                    ? 'text-rose-700'
-                                    : 'text-slate-400'
+                                      ? 'text-rose-700'
+                                      : 'text-slate-400'
                                 }`}
                               >
                                 {isCheckPass ? 'passed' : isCheckFail ? 'failed' : 'skipped'}
@@ -459,7 +501,11 @@ export default function App() {
                                         isCheckFail ? 'text-rose-800 font-bold' : 'text-slate-900'
                                       }`}
                                     >
-                                      {check.computed}
+                                      {isCheckFail && check.expected ? (
+                                        <DiffText value={check.computed} other={check.expected} />
+                                      ) : (
+                                        check.computed
+                                      )}
                                     </span>
                                   </div>
                                 )}
@@ -469,7 +515,11 @@ export default function App() {
                                       expected:
                                     </span>
                                     <span className="text-slate-900 break-all">
-                                      {check.expected}
+                                      {isCheckFail && check.computed ? (
+                                        <DiffText value={check.expected} other={check.computed} />
+                                      ) : (
+                                        check.expected
+                                      )}
                                     </span>
                                   </div>
                                 )}
@@ -487,10 +537,7 @@ export default function App() {
             {/* Right Column: Merkle Path & Proof Details */}
             <div className="lg:col-span-5 space-y-6">
               {/* Merkle Path Visualization */}
-              <Card
-                title="Merkle Path"
-                subtitle="Folded from the file upward to the root"
-              >
+              <Card title="Merkle Path" subtitle="Folded from the file upward to the root">
                 <div className="space-y-2 text-xs">
                   {/* On-chain Root */}
                   <div
@@ -511,16 +558,29 @@ export default function App() {
                   {/* Root comparison indicator */}
                   <div className="flex items-center justify-center gap-1.5 text-xs font-bold py-1">
                     {result.computed?.root && result.chainBatch?.root ? (
-                      result.computed.root.toLowerCase() === result.chainBatch.root.toLowerCase() ? (
+                      result.computed.root.toLowerCase() ===
+                      result.chainBatch.root.toLowerCase() ? (
                         <span className="text-emerald-700 flex items-center gap-1">
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <svg
+                            className="w-4 h-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                          >
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
                           Matches On-Chain Root
                         </span>
                       ) : (
                         <span className="text-rose-700 flex items-center gap-1">
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <svg
+                            className="w-4 h-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                          >
                             <line x1="18" y1="6" x2="6" y2="18" />
                             <line x1="6" y1="6" x2="18" y2="18" />
                           </svg>
@@ -603,9 +663,7 @@ export default function App() {
                     </dd>
 
                     <dt className="text-slate-500 font-medium">Issuer</dt>
-                    <dd className="text-slate-900">
-                      {result.proof.metadata?.issuer || '—'}
-                    </dd>
+                    <dd className="text-slate-900">{result.proof.metadata?.issuer || '—'}</dd>
 
                     <dt className="text-slate-500 font-medium">Date</dt>
                     <dd className="font-mono text-slate-900">
@@ -614,14 +672,16 @@ export default function App() {
 
                     <dt className="text-slate-500 font-medium">Batch</dt>
                     <dd className="font-mono text-slate-900">
-                      {result.proof.batchId} (leaf {result.proof.leafIndex + 1} of {result.proof.leafCount})
+                      {result.proof.batchId} (leaf {result.proof.leafIndex + 1} of{' '}
+                      {result.proof.leafCount})
                     </dd>
 
                     {result.proof.anchor && (
                       <>
                         <dt className="text-slate-500 font-medium">Anchor</dt>
                         <dd className="font-mono text-xs text-slate-700">
-                          Block {result.proof.anchor.blockNumber} · tx {result.proof.anchor.txHash?.slice(0, 10)}…
+                          Block {result.proof.anchor.blockNumber} · tx{' '}
+                          {result.proof.anchor.txHash?.slice(0, 10)}…
                         </dd>
                       </>
                     )}
@@ -635,8 +695,8 @@ export default function App() {
         {/* Footer Disclaimer */}
         <footer className="mt-12 pt-6 border-t border-slate-200 text-xs text-slate-500 flex flex-wrap justify-between items-center gap-4">
           <p>
-            Verification proves that this exact file, with these confirmed details, was registered in this batch.
-            It does not prove that the contents are true or who wrote the document.
+            Verification proves that this exact file, with these confirmed details, was registered
+            in this batch. It does not prove that the contents are true or who wrote the document.
           </p>
           <div className="font-mono text-slate-400">ProofChain v0.1.0</div>
         </footer>
