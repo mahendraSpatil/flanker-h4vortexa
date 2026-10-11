@@ -1,0 +1,81 @@
+{
+  "documents": [
+    {
+      "file": "degree-01-kestrel.pdf",
+      "docType": "DEGREE_CERTIFICATE",
+      "issuer": "Kestrel Institute of Technology",
+      "date": "2026-06-14"
+    },
+    {
+      "file": "degree-02-meridian.pdf",
+      "docType": "DEGREE_CERTIFICATE",
+      "issuer": "Meridian State University",
+      "date": "2026-06-20"
+    },
+    {
+      "file": "degree-03-kestrel.pdf",
+      "docType": "DEGREE_CERTIFICATE",
+      "issuer": "Kestrel Institute of Technology",
+      "date": "2026-06-18"
+    },
+    {
+      "file": "marksheet-01-kestrel.pdf",
+      "docType": "MARKSHEET",
+      "issuer": "Kestrel Institute of Technology",
+      "date": "2026-07-02"
+    },
+    {
+      "file": "marksheet-02-meridian.pdf",
+      "docType": "MARKSHEET",
+      "issuer": "Meridian State University",
+      "date": "2026-07-05"
+    },
+    {
+      "file": "marksheet-03-meridian.pdf",
+      "docType": "MARKSHEET",
+      "issuer": "Meridian State University",
+      "date": "2026-07-06"
+    },
+    {
+      "file": "salary-01-brightwell.pdf",
+      "docType": "SALARY_SLIP",
+      "issuer": "Brightwell Analytics Pvt Ltd",
+      "date": "2026-03-31"
+    },
+    {
+      "file": "salary-02-brightwell.pdf",
+      "docType": "SALARY_SLIP",
+      "issuer": "Brightwell Analytics Pvt Ltd",
+      "date": "2026-04-30"
+    },
+    {
+      "file": "salary-03-brightwell.pdf",
+      "docType": "SALARY_SLIP",
+      "issuer": "Brightwell Analytics Pvt Ltd",
+      "date": "2026-05-31"
+    },
+    {
+      "file": "offer-01-brightwell.pdf",
+      "docType": "OFFER_LETTER",
+      "issuer": "Brightwell Analytics Pvt Ltd",
+      "date": "2026-08-12"
+    },
+    {
+      "file": "experience-01-brightwell-scan.png",
+      "docType": "EXPERIENCE_LETTER",
+      "issuer": "Brightwell Analytics Pvt Ltd",
+      "date": "2026-07-15"
+    },
+    {
+      "file": "degree-04-meridian-provisional.txt",
+      "docType": "DEGREE_CERTIFICATE",
+      "issuer": "Meridian State University",
+      "date": "2026-06-20"
+    }
+  ],
+  "tampered": {
+    "file": "tampered/salary-01-brightwell-tampered.pdf",
+    "basedOn": "salary-01-brightwell.pdf",
+    "change": "Net Pay 50,000 -> 80,000"
+  }
+}

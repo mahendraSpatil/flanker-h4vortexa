@@ -329,7 +329,7 @@ proofchain/
 | Start over | — | `npm run reset` (hardhat_reset + wipe DB/storage + redeploy) |
 | Tests | — | `npm test` (core + contracts) |
 
-**`server/.env`:** `PORT=4000`, `RPC_URL=http://127.0.0.1:8545`, `PUBLISHER_PRIVATE_KEY=<Hardhat account #0 key>`, `GEMINI_API_KEY=<from AI Studio>`, `AI_MODE=gemini` (set `off` to demo the fallback).
+**`server/.env`:** `PORT=4000`, `RPC_URL=http://127.0.0.1:8545`, `PUBLISHER_PRIVATE_KEY=<Hardhat account #0 key>`, `GEMINI_API_KEY=<from AI Studio>`, `AI_MODE=gemini` (set `off` to demo the fallback), optional `GEMINI_MODEL` (default `gemini-2.5-flash`).
 
 **Verifier config:** imports `shared/deployment.json` at build time, so chainId and contract are pinned. It has **no** server URL configured.
 
@@ -344,9 +344,9 @@ Frontend and backend work in parallel against this contract; frontends start wit
 | Method + path | Body | Returns | Owner |
 | --- | --- | --- | --- |
 | `GET /api/health` | — | `{ ok, chain, aiMode, contract }` | Archit |
-| `POST /api/documents` | multipart `file` | `{ recordId, fileHash, status:"draft", suggestions:{ docType, issuer, date, confidence:{...}, evidence:{...} }, extractionPath:"ai"\|"fallback" }`; 409 `DUPLICATE` with `{ recordId, batchId }` | Mahendra |
-| `POST /api/documents/:recordId/confirm` | `{ docType, issuer, date }` | `{ record, leaf, status:"pending" }`; 400 `VALIDATION` with field errors | Mahendra |
-| `GET /api/documents` | query `status, docType, issuer, batchId` | `[ record ]` | Mahendra |
+| `POST /api/documents` | multipart `file` | 201 `{ recordId, fileHash, fileName, mime, status:"draft", suggestions:{ docType, issuer, date, confidence:{...}, evidence:{...} }, extractionPath:"ai"\|"fallback", textMethod:"pdf-text"\|"ocr"\|"plain"\|null, warnings:[string] }`; 400 `NO_FILE` / `EMPTY_FILE` / `UPLOAD_INVALID`; 413 `FILE_TOO_LARGE`; 415 `UNSUPPORTED_TYPE` (also used for `INVALID_TEXT_ENCODING`); 409 `DUPLICATE` with `{ recordId, batchId, status }` | Mahendra |
+| `POST /api/documents/:recordId/confirm` | `{ docType, issuer, date }` | `{ record, leaf, status:"pending", canonical }` (`canonical` = the exact text that was hashed); 400 `VALIDATION` with details `{ fields:{ docType?, issuer?, date? } }`; 409 `ALREADY_ANCHORED`; a `pending` record may be re-confirmed until it is sealed | Mahendra |
+| `GET /api/documents` | query `status, docType, issuer, batchId, recordId` | `[ record ]` | Mahendra |
 | `GET /api/documents/:recordId/file` | — | the stored file | Mahendra |
 | `GET /api/documents/:recordId/proof` | — | `proof.json` (404 `NOT_ANCHORED` if not anchored; 409 `RECORD_INTEGRITY_FAILED` if the stored record no longer folds to its batch root: run the audit) | Archit |
 | `POST /api/batches/seal` | — | `{ batchId, root, leafCount, txHash, blockNumber }`; 400 `NOTHING_PENDING` | Archit |
@@ -355,6 +355,8 @@ Frontend and backend work in parallel against this contract; frontends start wit
 | `POST /api/demo/tamper` | `{ type:"stored_file"\|"db_metadata"\|"restore", recordId }` | `{ ok:true, detail }` (demo only; `restore` undoes the record's latest tamper) | Archit |
 | `POST /api/explain` | `{ verdict, checks }` (no document, no DB lookup) | `{ explanation, path:"ai"\|"template" }` | Mahendra |
 | `GET /api/audit-log` | — | `[ entry ]` newest first | Archit |
+
+**Record shape (API responses):** `{ recordId, fileHash, fileName, mime, status, docType, issuer, date, leaf, batchId, leafIndex, extractionPath, suggestions, warnings, createdBy, createdAt, confirmedBy, confirmedAt }`
 
 **SQLite schema (`server/src/db/schema.sql`):**
 
@@ -415,8 +417,10 @@ Edit only files you own. Every source file starts with `// Owner: <name> | <purp
 | Person | Owns | Folders / files |
 | --- | --- | --- |
 | Archit | Core crypto lib, contract, sealing/publishing, proofs, audit, tamper endpoints, repo + merges | `core/`, `contracts/`, `shared/`, root config, `server/src/lib/chain.js`, `server/src/routes/{health,proofs,batches,audit,demo}.js`, `server/src/services/batching.js`, `verifier/src/chain.js`, all `(frozen)` files |
-| Mahendra | Server foundation, upload, text extraction, AI + fallback, confirm, explain, registry upload/confirm UI | `server/src/routes/{documents,explain}.js`, `server/src/services/{storage,extraction,aiMetadata,fallbackMetadata,explain}.js`, `web/src/pages/{Upload,Confirm}.jsx` |
+| Mahendra | Server foundation, upload, text extraction, AI + fallback, confirm, explain, registry upload/confirm UI | `server/src/routes/{documents,explain}.js`, `server/src/services/{storage,extraction,aiMetadata,fallbackMetadata,explain,documentRules,documentRegistry}.js`, `web/src/pages/{Upload,Confirm}.jsx` |
 | Neel | Sample documents, seed script, verifier UI, registry list pages, tamper panel UI, README Demo section, slides | `samples/`, `scripts/seed.js`, `verifier/src/` (except `chain.js`, `config.js`), `web/src/pages/{Records,Batches,Audit,Tamper}.jsx`, `README.md` "Demo" section |
+
+Server tests live in `server/test/`, one file per area, run by `npm run test:server`.
 
 **Archit**
 

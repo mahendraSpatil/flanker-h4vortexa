@@ -12,3 +12,4 @@ contracts/typechain-types/
 server/data/
 server/storage/
 samples/
+docs/ui/
