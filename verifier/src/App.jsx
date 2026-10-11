@@ -9,6 +9,7 @@ import FileDrop from './components/ui/FileDrop.jsx';
 import Hash from './components/ui/Hash.jsx';
 import Alert from './components/ui/Alert.jsx';
 import Spinner from './components/ui/Spinner.jsx';
+import ChatbotWidget from './components/ChatbotWidget.jsx';
 
 const POLL_INTERVAL_MS = 6000;
 
@@ -701,6 +702,7 @@ export default function App() {
           <div className="font-mono text-slate-400">ProofChain v0.1.0</div>
         </footer>
       </main>
+      <ChatbotWidget />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { getActor, setActor } from '../api/client.js';
+import ChatbotWidget from './ChatbotWidget.jsx';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Upload', end: true },
@@ -64,6 +65,7 @@ export default function Layout() {
       <main className="mx-auto max-w-6xl px-4 py-8">
         <Outlet />
       </main>
+      <ChatbotWidget />
     </div>
   );
 }
