@@ -1,4 +1,4 @@
-// Owner: Mahendra | Test helpers: in-memory DB with the real schema, fake storage and audit log
+// Owner: Mahendra | Helpers for Mahendra's unit tests: in-memory DB with the real schema, fake storage and audit log
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 

@@ -9,7 +9,7 @@ import {
   validateConfirmFields,
   validateUpload,
 } from '../src/services/documentRules.js';
-import { JPEG_BYTES, PNG_BYTES, sha256Hex, tinyPdf } from './helpers.js';
+import { JPEG_BYTES, PNG_BYTES, sha256Hex, tinyPdf } from './documentHelpers.js';
 
 const code = (fn) => {
   try {

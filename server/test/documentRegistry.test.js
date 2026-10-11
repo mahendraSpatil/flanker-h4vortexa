@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { canonicalJSON } from '@proofchain/core';
 import { createDocumentRegistry } from '../src/services/documentRegistry.js';
-import { auditRecorder, memoryStorage, openTestDb, sha256Hex, tinyPdf } from './helpers.js';
+import { auditRecorder, memoryStorage, openTestDb, sha256Hex, tinyPdf } from './documentHelpers.js';
 
 const NOW = new Date('2026-10-11T10:00:00');
 const SUGGESTIONS = {
