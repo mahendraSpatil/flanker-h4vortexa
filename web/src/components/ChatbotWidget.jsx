@@ -1,9 +1,10 @@
 // Owner: Neel | ElevenLabs Conversational AI floating chatbot widget
-import { useState, useCallback } from 'react';
-import { useConversation } from '@elevenlabs/react';
+import { useState, useCallback, Component } from 'react';
+import { ConversationProvider, useConversation } from '@elevenlabs/react';
 
 const AGENT_ID = 'agent_5801m4ne6va6fqktrd7233c1yd4d';
 
+/* ── Icons ─────────────────────────────────────────────────────────── */
 const MicIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
@@ -21,24 +22,36 @@ const CloseIcon = () => (
 );
 
 const SparkleIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69h6.06l-4.9 3.56a1 1 0 0 0-.36 1.12L17.51 20 12 16.44 6.49 20l1.88-5.87a1 1 0 0 0-.36-1.12L3.11 9.45h6.06a1 1 0 0 0 .95-.69z" />
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
   </svg>
 );
 
-export default function ChatbotWidget() {
+/* ── Error Boundary ─────────────────────────────────────────────────── */
+class ChatbotErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) return null; // silently hide on error; don't crash the app
+    return this.props.children;
+  }
+}
+
+/* ── Inner widget — must live inside ConversationProvider ───────────── */
+function ChatbotInner() {
   const [isOpen, setIsOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
   const conversation = useConversation({
-    onConnect: () => {
-      setIsConnecting(false);
-    },
-    onDisconnect: () => {
-      setIsConnecting(false);
-    },
-    onError: (error) => {
-      console.error('ElevenLabs error:', error);
+    onConnect: () => setIsConnecting(false),
+    onDisconnect: () => setIsConnecting(false),
+    onError: (err) => {
+      console.error('ElevenLabs error:', err);
       setIsConnecting(false);
     },
   });
@@ -67,62 +80,46 @@ export default function ChatbotWidget() {
     }
   }, [conversation]);
 
-  const handleToggleMic = useCallback(async () => {
-    if (isActive) {
-      await handleClose();
-    } else {
-      await handleOpen();
-    }
-  }, [isActive, handleOpen, handleClose]);
+  const handleToggle = useCallback(() => {
+    if (isOpen) handleClose();
+    else handleOpen();
+  }, [isOpen, handleOpen, handleClose]);
+
+  const SUGGESTED = [
+    'What does ROOT_MISMATCH mean?',
+    'How do I verify a document?',
+    'Why is my document DOCUMENT_MODIFIED?',
+  ];
 
   return (
     <>
-      {/* Floating Panel */}
+      {/* ── Floating panel ──────────────────────────────────────────── */}
       {isOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '96px',
-            right: '24px',
-            width: '320px',
-            zIndex: 9999,
-            borderRadius: '16px',
-            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-            border: '1px solid rgba(99,102,241,0.35)',
-            boxShadow: '0 24px 64px rgba(0,0,0,0.45), 0 0 0 1px rgba(99,102,241,0.1)',
-            overflow: 'hidden',
-            fontFamily: 'inherit',
-          }}
-        >
+        <div style={{
+          position: 'fixed', bottom: '96px', right: '24px', width: '316px', zIndex: 9998,
+          borderRadius: '16px',
+          background: 'linear-gradient(145deg,#0f172a 0%,#1e293b 100%)',
+          border: '1px solid rgba(99,102,241,.35)',
+          boxShadow: '0 24px 64px rgba(0,0,0,.5),0 0 0 1px rgba(99,102,241,.1)',
+          overflow: 'hidden', fontFamily: 'inherit',
+        }}>
+
           {/* Header */}
-          <div
-            style={{
-              padding: '14px 16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              borderBottom: '1px solid rgba(99,102,241,0.2)',
-              background: 'rgba(99,102,241,0.08)',
-            }}
-          >
+          <div style={{
+            padding: '13px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            borderBottom: '1px solid rgba(99,102,241,.2)', background: 'rgba(99,102,241,.08)',
+          }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  flexShrink: 0,
-                }}
-              >
+              <div style={{
+                width: '32px', height: '32px', borderRadius: '8px',
+                background: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'white', flexShrink: 0,
+              }}>
                 <SparkleIcon />
               </div>
               <div>
-                <div style={{ color: 'white', fontWeight: '700', fontSize: '14px', lineHeight: 1.2 }}>
+                <div style={{ color: 'white', fontWeight: 700, fontSize: '14px', lineHeight: 1.2 }}>
                   ProofChain Assistant
                 </div>
                 <div style={{ color: 'rgba(148,163,184,1)', fontSize: '11px', marginTop: '1px' }}>
@@ -130,167 +127,82 @@ export default function ChatbotWidget() {
                 </div>
               </div>
             </div>
-            <button
-              onClick={handleClose}
-              style={{
-                background: 'rgba(255,255,255,0.07)',
-                border: 'none',
-                borderRadius: '8px',
-                color: 'rgba(148,163,184,1)',
-                cursor: 'pointer',
-                padding: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)'; e.currentTarget.style.color = 'white'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(148,163,184,1)'; }}
-              aria-label="Close assistant"
-            >
+            <button onClick={handleClose} aria-label="Close" style={{
+              background: 'rgba(255,255,255,.07)', border: 'none', borderRadius: '8px',
+              color: 'rgba(148,163,184,1)', cursor: 'pointer', padding: '6px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
               <CloseIcon />
             </button>
           </div>
 
           {/* Body */}
-          <div style={{ padding: '24px 20px', textAlign: 'center' }}>
-            {/* Voice Orb */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
-              <div
-                style={{
-                  width: '100px',
-                  height: '100px',
-                  borderRadius: '50%',
-                  background: isActive
-                    ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%)'
-                    : 'rgba(30,41,59,1)',
-                  border: isActive
-                    ? '3px solid rgba(139,92,246,0.6)'
-                    : '3px solid rgba(99,102,241,0.25)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: isActive ? 'white' : 'rgba(99,102,241,0.8)',
-                  boxShadow: isActive
-                    ? '0 0 32px rgba(99,102,241,0.5), 0 0 64px rgba(139,92,246,0.25)'
-                    : '0 4px 20px rgba(0,0,0,0.3)',
-                  animation: isSpeaking
-                    ? 'proofchain-pulse 0.8s ease-in-out infinite alternate'
-                    : isActive
-                      ? 'proofchain-glow 2s ease-in-out infinite alternate'
-                      : 'none',
-                  transition: 'all 0.4s ease',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                }}
-                onClick={handleToggleMic}
-              >
+          <div style={{ padding: '22px 18px', textAlign: 'center' }}>
+            {/* Orb */}
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '18px' }}>
+              <div onClick={handleToggle} style={{
+                width: '96px', height: '96px', borderRadius: '50%', cursor: 'pointer',
+                background: isActive
+                  ? 'linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a78bfa 100%)'
+                  : 'rgba(30,41,59,1)',
+                border: isActive ? '3px solid rgba(139,92,246,.6)' : '3px solid rgba(99,102,241,.25)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: isActive ? 'white' : 'rgba(99,102,241,.8)',
+                boxShadow: isActive ? '0 0 32px rgba(99,102,241,.5)' : '0 4px 20px rgba(0,0,0,.3)',
+                transition: 'all .4s ease',
+                animation: isSpeaking ? 'pc-pulse .8s ease-in-out infinite alternate'
+                  : isActive ? 'pc-glow 2s ease-in-out infinite alternate' : 'none',
+              }}>
                 <MicIcon />
               </div>
             </div>
 
-            {/* Status Text */}
-            <div
-              style={{
-                color: isConnecting
-                  ? 'rgba(251,191,36,1)'
-                  : isActive
-                    ? isSpeaking
-                      ? 'rgba(167,139,250,1)'
-                      : 'rgba(52,211,153,1)'
-                    : 'rgba(148,163,184,1)',
-                fontWeight: '600',
-                fontSize: '13px',
-                marginBottom: '6px',
-                transition: 'color 0.3s',
-              }}
-            >
-              {isConnecting
-                ? 'Connecting...'
-                : isActive
-                  ? isSpeaking
-                    ? '🔊 Assistant is speaking…'
-                    : '🎙️ Listening — speak now'
+            {/* Status */}
+            <div style={{
+              color: isConnecting ? 'rgba(251,191,36,1)'
+                : isActive ? (isSpeaking ? 'rgba(167,139,250,1)' : 'rgba(52,211,153,1)')
+                  : 'rgba(148,163,184,1)',
+              fontWeight: 600, fontSize: '13px', marginBottom: '5px', transition: 'color .3s',
+            }}>
+              {isConnecting ? 'Connecting…'
+                : isActive ? (isSpeaking ? '🔊 Speaking…' : '🎙️ Listening — speak now')
                   : 'Tap the mic to start'}
             </div>
-
             <div style={{ color: 'rgba(100,116,139,1)', fontSize: '11px', lineHeight: 1.5 }}>
-              {isActive
-                ? 'Ask about verification results, how to upload, or what any error code means.'
+              {isActive ? 'Ask about verification results, errors, or how to register a document.'
                 : 'Voice-powered AI assistant. Ask anything about ProofChain.'}
             </div>
 
-            {/* Mic Toggle Button */}
-            <button
-              onClick={handleToggleMic}
-              disabled={isConnecting}
-              style={{
-                marginTop: '20px',
-                width: '100%',
-                padding: '11px 16px',
-                borderRadius: '10px',
-                border: 'none',
-                background: isActive
-                  ? 'rgba(239,68,68,0.15)'
-                  : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                color: isActive ? 'rgba(252,165,165,1)' : 'white',
-                fontWeight: '600',
-                fontSize: '13px',
-                cursor: isConnecting ? 'not-allowed' : 'pointer',
-                opacity: isConnecting ? 0.6 : 1,
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                outline: 'none',
-              }}
-              onMouseEnter={e => { if (!isConnecting) e.currentTarget.style.opacity = '0.85'; }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
-            >
-              {isConnecting
-                ? 'Connecting...'
-                : isActive
-                  ? '⏹ End Conversation'
-                  : '🎙️ Start Voice Chat'}
+            {/* Button */}
+            <button onClick={handleToggle} disabled={isConnecting} style={{
+              marginTop: '18px', width: '100%', padding: '10px 14px', borderRadius: '10px',
+              border: 'none',
+              background: isActive ? 'rgba(239,68,68,.15)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+              color: isActive ? 'rgba(252,165,165,1)' : 'white',
+              fontWeight: 600, fontSize: '13px', cursor: isConnecting ? 'not-allowed' : 'pointer',
+              opacity: isConnecting ? .6 : 1, transition: 'all .2s',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
+            }}>
+              {isConnecting ? 'Connecting…' : isActive ? '⏹ End Conversation' : '🎙️ Start Voice Chat'}
             </button>
           </div>
 
-          {/* Suggested prompts (only when not yet active) */}
+          {/* Suggested prompts */}
           {!isActive && !isConnecting && (
-            <div
-              style={{
-                padding: '0 16px 16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '6px',
-              }}
-            >
-              <div style={{ color: 'rgba(100,116,139,1)', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
+            <div style={{ padding: '0 15px 15px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <div style={{ color: 'rgba(100,116,139,1)', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: '3px' }}>
                 Try asking
               </div>
-              {[
-                'What does ROOT_MISMATCH mean?',
-                'How do I verify a document?',
-                'Why is my document showing DOCUMENT_MODIFIED?',
-              ].map((prompt) => (
-                <div
-                  key={prompt}
-                  style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(99,102,241,0.18)',
-                    borderRadius: '8px',
-                    padding: '8px 12px',
-                    color: 'rgba(148,163,184,1)',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.12)'; e.currentTarget.style.color = 'white'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'rgba(148,163,184,1)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.18)'; }}
-                  onClick={handleOpen}
+              {SUGGESTED.map((p) => (
+                <div key={p} onClick={handleOpen} style={{
+                  background: 'rgba(255,255,255,.04)', border: '1px solid rgba(99,102,241,.18)',
+                  borderRadius: '8px', padding: '7px 11px', color: 'rgba(148,163,184,1)',
+                  fontSize: '12px', cursor: 'pointer', transition: 'all .15s',
+                }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,.12)'; e.currentTarget.style.color = 'white'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,.04)'; e.currentTarget.style.color = 'rgba(148,163,184,1)'; }}
                 >
-                  "{prompt}"
+                  "{p}"
                 </div>
               ))}
             </div>
@@ -298,69 +210,56 @@ export default function ChatbotWidget() {
         </div>
       )}
 
-      {/* Floating Action Button */}
-      <button
-        id="chatbot-toggle"
-        onClick={isOpen ? handleClose : handleOpen}
-        style={{
-          position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          width: '60px',
-          height: '60px',
-          borderRadius: '50%',
-          background: isActive
-            ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
-            : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-          border: 'none',
-          cursor: 'pointer',
-          color: 'white',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: isActive
-            ? '0 0 0 3px rgba(99,102,241,0.4), 0 8px 24px rgba(99,102,241,0.5)'
-            : '0 4px 20px rgba(99,102,241,0.4)',
-          zIndex: 9999,
-          transition: 'all 0.2s ease',
-          animation: isActive && !isOpen ? 'proofchain-pulse 1.2s ease-in-out infinite alternate' : 'none',
-          outline: 'none',
-        }}
+      {/* ── FAB ──────────────────────────────────────────────────────── */}
+      <button id="chatbot-toggle" onClick={handleToggle} aria-label="Toggle ProofChain assistant" style={{
+        position: 'fixed', bottom: '24px', right: '24px',
+        width: '58px', height: '58px', borderRadius: '50%', border: 'none',
+        background: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+        cursor: 'pointer', color: 'white',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: isActive
+          ? '0 0 0 3px rgba(99,102,241,.4),0 8px 24px rgba(99,102,241,.5)'
+          : '0 4px 20px rgba(99,102,241,.4)',
+        zIndex: 9999, transition: 'all .2s ease',
+        animation: isActive && !isOpen ? 'pc-pulse 1.2s ease-in-out infinite alternate' : 'none',
+      }}
         onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)'; }}
         onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}
-        aria-label={isOpen ? 'Close ProofChain assistant' : 'Open ProofChain assistant'}
         title="ProofChain AI Assistant"
       >
         {isOpen ? <CloseIcon /> : <MicIcon />}
-        {/* Live indicator dot */}
         {isActive && (
-          <span
-            style={{
-              position: 'absolute',
-              top: '4px',
-              right: '4px',
-              width: '12px',
-              height: '12px',
-              background: '#10b981',
-              borderRadius: '50%',
-              border: '2px solid white',
-              animation: 'proofchain-pulse 1s ease-in-out infinite alternate',
-            }}
-          />
+          <span style={{
+            position: 'absolute', top: '3px', right: '3px',
+            width: '12px', height: '12px', background: '#10b981',
+            borderRadius: '50%', border: '2px solid white',
+            animation: 'pc-pulse 1s ease-in-out infinite alternate',
+          }} />
         )}
       </button>
 
-      {/* Keyframe animations */}
+      {/* Animations */}
       <style>{`
-        @keyframes proofchain-pulse {
-          from { transform: scale(1); box-shadow: 0 0 0 0 rgba(99,102,241,0.4); }
-          to   { transform: scale(1.06); box-shadow: 0 0 0 8px rgba(99,102,241,0); }
+        @keyframes pc-pulse {
+          from { transform: scale(1); }
+          to   { transform: scale(1.07); }
         }
-        @keyframes proofchain-glow {
-          from { box-shadow: 0 0 24px rgba(99,102,241,0.4), 0 0 48px rgba(139,92,246,0.2); }
-          to   { box-shadow: 0 0 40px rgba(99,102,241,0.7), 0 0 80px rgba(139,92,246,0.35); }
+        @keyframes pc-glow {
+          from { box-shadow: 0 0 24px rgba(99,102,241,.4); }
+          to   { box-shadow: 0 0 44px rgba(99,102,241,.75); }
         }
       `}</style>
     </>
+  );
+}
+
+/* ── Public export — wraps inner with required Provider + ErrorBoundary ─ */
+export default function ChatbotWidget() {
+  return (
+    <ChatbotErrorBoundary>
+      <ConversationProvider>
+        <ChatbotInner />
+      </ConversationProvider>
+    </ChatbotErrorBoundary>
   );
 }
