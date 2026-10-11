@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ProofChain Verifier: forged proof</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4338CA}a:hover{color:#3730A3}
+.card{background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #E2E8F0}
+.card-t{margin:0;font-size:15px;font-weight:600}
+.mono{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border-radius:8px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;border:1px solid transparent}
+.btn-p{background:#4F46E5;color:#FFFFFF}.btn-p:hover{background:#4338CA;color:#FFFFFF}
+.btn-s{background:#FFFFFF;color:#0F172A;border-color:#CBD5E1}.btn-s:hover{background:#F8FAFC;color:#0F172A}
+.drop{display:flex;align-items:center;gap:14px;padding:16px;border:2px solid #CBD5E1;border-radius:12px;background:#FFFFFF;cursor:pointer;min-height:72px;box-sizing:border-box}
+.ck{display:grid;grid-template-columns:28px 44px minmax(0,1fr);gap:4px 12px;padding:14px 20px;border-bottom:1px solid #F1F5F9;align-items:start}
+.cid{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:500;padding:2px 6px;border-radius:4px;background:#F1F5F9;color:#334155;text-align:center}
+.hv{display:grid;grid-template-columns:72px minmax(0,1fr);gap:2px 8px;margin-top:6px;font-size:12px}
+.hk{color:#475569}
+.hx{font-family:'IBM Plex Mono',ui-monospace,monospace;color:#0F172A;overflow-wrap:anywhere}
+.df{background:#FECDD3;color:#881337;border-radius:2px;padding:0 1px;font-weight:600}
+.step{display:flex;align-items:center;gap:12px}
+.box{flex:1;min-width:0;border:1px solid #CBD5E1;border-radius:8px;padding:10px 12px;background:#FFFFFF}
+.sib{flex:none;width:170px;border:1px dashed #94A3B8;border-radius:8px;padding:8px 10px;background:#F8FAFC;font-size:12px}
+.up{display:flex;justify-content:flex-start;padding-left:24px;color:#94A3B8;height:22px;align-items:center}
+.lab{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#475569}
+.val{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#0F172A}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F8FAFC; color: #0F172A; font-family: 'IBM Plex Sans', system-ui, sans-serif">
+<header style="background: #0F172A; color: #FFFFFF">
+<div style="max-width: 1200px; margin: 0 auto; padding: 12px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px">
+<div style="display: flex; align-items: center; gap: 10px">
+<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect x="0" y="0" width="30" height="30" rx="8" fill="#FFFFFF"></rect><path d="M15 9 L9 20 M15 9 L21 20" stroke="#A5B4FC" strokeWidth="1.6" fill="none"></path><circle cx="15" cy="9" r="3" fill="#4F46E5"></circle><circle cx="9" cy="20.5" r="2.6" fill="#4F46E5"></circle><circle cx="21" cy="20.5" r="2.6" fill="#4F46E5"></circle></svg>
+<span style="font-size: 17px; font-weight: 700">ProofChain</span>
+<span style="font-size: 13px; color: #CBD5E1; border-left: 1px solid #334155; padding-left: 10px">Independent verifier</span>
+</div>
+<div style="margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 13px; color: #CBD5E1">
+<span>Pinned registry <span class="mono" style="color: #FFFFFF">0x5FbD…0aa3</span> · chain <span class="mono" style="color: #FFFFFF">31337</span></span>
+<span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #064E3B; color: #D1FAE5"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #34D399"></span>Chain reachable · block 14</span>
+</div>
+</div>
+</header>
+
+<main style="max-width: 1200px; margin: 0 auto; padding: 32px 24px 56px; box-sizing: border-box">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px">
+<div>
+<h1 style="margin: 0 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Verify a document</h1>
+<p style="margin: 0; font-size: 15px; color: #475569">Drop the document and its proof.json. The root is read straight from the pinned contract; this app never contacts the registry.</p>
+</div>
+<a href="Verifier.dc.html" style="font-size: 14px; font-weight: 600">← Back to the genuine document</a>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch; margin-bottom: 24px">
+<label for="doc" class="drop" style="flex: 1 1 340px">
+<div style="width: 36px; height: 44px; border-radius: 6px; background: #FFF1F2; border: 1px solid #FECDD3; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #BE123C">PDF</div>
+<div style="min-width: 0; flex: 1"><div class="lab">Document</div><div style="font-weight: 600; font-size: 15px">salary_slip_jul2026_edited.pdf</div><div style="font-size: 13px; color: #475569">176 KB · net pay changed to ₹80,000</div></div>
+<input id="doc" type="file" style="position: absolute; width: 1px; height: 1px; opacity: 0">
+</label>
+<label for="proof" class="drop" style="flex: 1 1 340px">
+<div style="width: 36px; height: 44px; border-radius: 6px; background: #EEF2FF; border: 1px solid #C7D2FE; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #4338CA">JSON</div>
+<div style="min-width: 0; flex: 1"><div class="lab">Proof</div><div style="font-weight: 600; font-size: 15px">REC-000008.proof.json</div><div style="font-size: 13px; color: #475569">fileHash, leaf and root rebuilt by the forger</div></div>
+<input id="proof" type="file" accept=".json,application/json" style="position: absolute; width: 1px; height: 1px; opacity: 0">
+</label>
+<div style="display: flex; flex-direction: column; gap: 8px; justify-content: center">
+<button class="btn btn-p">Verify</button>
+<button class="btn btn-s">Clear</button>
+</div>
+</div>
+
+<section aria-labelledby="verdict" style="display: flex; flex-wrap: wrap; align-items: center; gap: 20px; padding: 24px 28px; border-radius: 14px; background: #BE123C; color: #FFFFFF; margin-bottom: 24px">
+<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"></path><path d="M9.5 9.5l5 5"></path><path d="M14.5 9.5l-5 5"></path></svg>
+<div style="flex: 1 1 520px; min-width: 0">
+<h2 id="verdict" class="mono" style="margin: 0; font-size: 30px; font-weight: 500; letter-spacing: 0.02em">ROOT_MISMATCH</h2>
+<p style="margin: 4px 0 0; font-size: 16px; line-height: 1.5">The proof agrees with itself, but its root is not the one published on-chain for <span class="mono">BATCH-0002</span>. The document was changed and the proof rebuilt to match.</p>
+</div>
+<div style="font-size: 13px; color: #FFE4E6; text-align: right">6 of 7 checks passed<br>Failed: 4b Root</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+<section class="card" aria-labelledby="checks-title" style="flex: 999 1 560px; min-width: 0">
+<div class="card-h"><h2 id="checks-title" class="card-t">Checks</h2><span style="font-size: 13px; color: #475569">Every check recomputes real SHA-256 hashes</span></div>
+<ol style="list-style: none; margin: 0; padding: 0">
+<sc-for list="{{checks}}" as="c" hint-placeholder-count="6">
+<li class="ck">
+<span aria-hidden="true" style="width: 24px; height: 24px; border-radius: 999px; background: #047857; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-10"></path></svg></span>
+<span class="cid">{{c.id}}</span>
+<div style="min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px"><span style="font-weight: 600; font-size: 15px">{{c.name}}</span><span style="font-size: 13px; color: #047857; font-weight: 600">passed</span></div>
+<div style="font-size: 13px; color: #475569">{{c.detail}}</div>
+<sc-if value="{{c.hasValues}}" hint-placeholder-val="{{true}}">
+<div class="hv"><span class="hk">computed</span><span class="hx">{{c.computed}}</span><span class="hk">expected</span><span class="hx">{{c.expected}}</span></div>
+</sc-if>
+</div>
+</li>
+</sc-for>
+<li class="ck" style="background: #FFF1F2; border-left: 0; border-bottom: 0; border-radius: 0 0 12px 12px">
+<span aria-hidden="true" style="width: 24px; height: 24px; border-radius: 999px; background: #BE123C; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M7 7l10 10"></path><path d="M17 7L7 17"></path></svg></span>
+<span class="cid" style="background: #FFE4E6; color: #9F1239">4b</span>
+<div style="min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px"><span style="font-weight: 600; font-size: 15px">Root</span><span style="font-size: 13px; color: #BE123C; font-weight: 600">failed · ROOT_MISMATCH</span></div>
+<div style="font-size: 13px; color: #881337">The root in the proof is not the root stored on-chain for this batch.</div>
+<div class="hv"><span class="hk">proof</span><span class="hx">0x<span class="df">7</span>1af40be…93e5d2c8</span><span class="hk">on-chain</span><span class="hx">0x<span class="df">e</span>82d41c0…c8b13a96</span></div>
+</div>
+</li>
+</ol>
+</section>
+
+<div style="flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 24px">
+<section class="card" aria-labelledby="path-title">
+<div class="card-h"><h2 id="path-title" class="card-t">Merkle path</h2><span style="font-size: 13px; color: #475569">Folded from the file upward</span></div>
+<div style="padding: 20px">
+<div class="step"><div class="box" style="border: 2px solid #4F46E5; background: #EEF2FF"><div class="lab" style="color: #3730A3">On-chain root · read from contract</div><div class="val">0xe82d…3a96</div></div></div>
+<div class="up" style="color: #BE123C; font-size: 13px; font-weight: 600; gap: 6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M7 7l10 10"></path><path d="M17 7L7 17"></path></svg>not equal</div>
+<div class="step"><div class="box" style="border: 2px solid #FDA4AF; background: #FFF1F2"><div class="lab" style="color: #9F1239">Computed root</div><div class="val">0x71af…d2c8</div></div><div class="sib"><div class="lab">sibling · left</div><div class="mono">N01 0x5c9e…71d0</div></div></div>
+<div class="up"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 19V5"></path><path d="M6 11l6-6 6 6"></path></svg></div>
+<div class="step"><div class="box"><div class="lab">Node N23 = H(0x01 ‖ leaf ‖ L3)</div><div class="val">0x3e19…a7f4</div></div><div class="sib"><div class="lab">sibling · right</div><div class="mono">L3 0x6b0d…e4a2</div></div></div>
+<div class="up"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 19V5"></path><path d="M6 11l6-6 6 6"></path></svg></div>
+<div class="step"><div class="box"><div class="lab">Leaf L2 = H(0x00 ‖ canonical record)</div><div class="val">0x91de…4b07</div></div></div>
+<div class="up"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 19V5"></path><path d="M6 11l6-6 6 6"></path></svg></div>
+<div class="step"><div class="box" style="background: #F8FAFC"><div class="lab">fileHash of the edited file</div><div class="val">0xc07e…5a12</div></div></div>
+</div>
+</section>
+
+<section class="card" aria-labelledby="why-title" style="border-color: #FECDD3">
+<div class="card-h"><h2 id="why-title" class="card-t">Why this failed</h2><span style="font-size: 12px; color: #475569">Template explanation</span></div>
+<div style="padding: 16px 20px; font-size: 14px; line-height: 1.6; color: #334155; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0">Checks 1 to 3 only show that the proof agrees with itself. Anyone who edits a document can rebuild those hashes.</p>
+<p style="margin: 0">Check 4b compares against the root on the blockchain. Only the registry's publisher key can write it, once, and it cannot be overwritten.</p>
+<p style="margin: 0">To check the copy you were sent, fetch the original through its receipt QR and compare the two.</p>
+</div>
+</section>
+</div>
+</div>
+
+<p style="margin: 24px 0 0; font-size: 13px; color: #475569">Verification proves this exact file was registered by this registry. It does not prove the contents are true or who wrote them.</p>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const c = (id, name, detail, computed, expected) => ({ id, name, detail, computed: computed || '', expected: expected || '', hasValues: Boolean(computed) });
+    return {
+      checks: [
+        c('0', 'Proof format', 'Fields, hex lengths, scheme and path length are well-formed.'),
+        c('0b', 'Registry', 'The proof names the same chain and contract this verifier trusts.', '0x5FbD…0aa3 · 31337', '0x5FbD…0aa3 · 31337 (pinned)'),
+        c('1', 'File hash', 'Matches, because the forger put the edited file’s hash into the proof.', '0xc07e3b19…f84d5a12', '0xc07e3b19…f84d5a12'),
+        c('2', 'Leaf', 'Matches, because the forger rebuilt the leaf too.', '0x91de07c2…6a1f4b07', '0x91de07c2…6a1f4b07'),
+        c('3', 'Merkle path', 'Folds to the root the forger wrote into the proof.', '0x71af40be…93e5d2c8', '0x71af40be…93e5d2c8'),
+        c('4a', 'Batch published', 'BATCH-0002 has a root on-chain, published in block 12.')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

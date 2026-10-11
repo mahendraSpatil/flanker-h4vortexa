@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ProofChain Registry: Records</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4338CA}a:hover{color:#3730A3}
+.card{background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px}
+.mono{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.s-draft{background:#F1F5F9;color:#334155}
+.s-pending{background:#FFFBEB;color:#B45309}
+.s-anchored{background:#EEF2FF;color:#4338CA}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border-radius:8px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;border:1px solid transparent}
+.btn-s{background:#FFFFFF;color:#0F172A;border-color:#CBD5E1}.btn-s:hover{background:#F8FAFC;color:#0F172A}
+.nav a{padding:8px 12px;border-radius:8px;font-size:14px;font-weight:500;text-decoration:none;color:#475569}
+.nav a:hover{background:#F1F5F9;color:#0F172A}
+.nav a.on{background:#EEF2FF;color:#4338CA}
+.ctl{min-height:40px;box-sizing:border-box;padding:0 12px;border:1px solid #CBD5E1;border-radius:8px;font:inherit;font-size:14px;color:#0F172A;background:#FFFFFF}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.04em;padding:10px 16px;border-bottom:1px solid #E2E8F0;background:#F8FAFC;white-space:nowrap}
+td{padding:12px 16px;border-bottom:1px solid #F1F5F9;vertical-align:middle}
+.act{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;text-decoration:none;min-height:32px;padding:0 10px;border-radius:6px;border:1px solid #CBD5E1;color:#0F172A;background:#FFFFFF}
+.act:hover{background:#F8FAFC;color:#0F172A}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F8FAFC; color: #0F172A; font-family: 'IBM Plex Sans', system-ui, sans-serif">
+<header style="background: #FFFFFF; border-bottom: 1px solid #E2E8F0">
+<div style="max-width: 1200px; margin: 0 auto; padding: 10px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 24px">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: #0F172A">
+<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect x="0" y="0" width="30" height="30" rx="8" fill="#4F46E5"></rect><path d="M15 9 L9 20 M15 9 L21 20" stroke="#C7D2FE" strokeWidth="1.6" fill="none"></path><circle cx="15" cy="9" r="3" fill="#FFFFFF"></circle><circle cx="9" cy="20.5" r="2.6" fill="#FFFFFF"></circle><circle cx="21" cy="20.5" r="2.6" fill="#FFFFFF"></circle></svg>
+<span style="font-size: 17px; font-weight: 700; letter-spacing: -0.01em">ProofChain</span>
+<span style="font-size: 13px; color: #475569; border-left: 1px solid #E2E8F0; padding-left: 10px">Registry</span>
+</a>
+<nav class="nav" aria-label="Registry" style="display: flex; flex-wrap: wrap; gap: 4px">
+<a href="Main.dc.html">Upload</a>
+<a href="Records.dc.html" class="on" aria-current="page">Records</a>
+<a href="Batches.dc.html">Batches</a>
+<a href="Audit.dc.html">Audit</a>
+<a href="Demo.dc.html">Demo</a>
+</nav>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 8px">
+<label for="actor" style="font-size: 13px; color: #475569">Acting as</label>
+<input id="actor" defaultValue="Archit" style="width: 140px; min-height: 36px; box-sizing: border-box; padding: 0 10px; border: 1px solid #CBD5E1; border-radius: 8px; font: inherit; font-size: 14px; color: #0F172A; background: #FFFFFF">
+</div>
+</div>
+</header>
+
+<main style="max-width: 1200px; margin: 0 auto; padding: 32px 24px 56px; box-sizing: border-box">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px">
+<div>
+<h1 style="margin: 0 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Records</h1>
+<p style="margin: 0; font-size: 15px; color: #475569">Every registered document. Proofs are available once a record's batch is anchored on-chain.</p>
+</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<span class="badge s-draft">2 draft</span>
+<span class="badge s-pending">3 pending</span>
+<span class="badge s-anchored">9 anchored</span>
+</div>
+</div>
+
+<section class="card">
+<form style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #E2E8F0">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="f-status" style="font-size: 12px; font-weight: 600; color: #475569">Status</label>
+<select id="f-status" class="ctl" defaultValue="all"><option value="all">All</option><option value="draft">Draft</option><option value="pending">Pending</option><option value="anchored">Anchored</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="f-type" style="font-size: 12px; font-weight: 600; color: #475569">Type</label>
+<select id="f-type" class="ctl" defaultValue="all"><option value="all">All types</option><option>Degree certificate</option><option>Marksheet</option><option>Salary slip</option><option>Offer letter</option><option>Experience letter</option><option>Other</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 240px">
+<label for="f-issuer" style="font-size: 12px; font-weight: 600; color: #475569">Issuer</label>
+<input id="f-issuer" class="ctl" placeholder="Search issuer" style="width: 100%">
+</div>
+<button type="button" class="btn btn-s" style="min-height: 40px">Clear filters</button>
+</form>
+<div style="overflow-x: auto">
+<table>
+<thead><tr><th scope="col">Record</th><th scope="col">File</th><th scope="col">Type</th><th scope="col">Issuer</th><th scope="col">Date</th><th scope="col">Status</th><th scope="col">Batch</th><th scope="col"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden">Action</span></th></tr></thead>
+<tbody>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+<tr>
+<td class="mono" style="font-size: 13px; white-space: nowrap">{{r.id}}</td>
+<td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.file}}</td>
+<td style="white-space: nowrap; color: {{r.mutedColor}}">{{r.type}}</td>
+<td style="color: {{r.mutedColor}}">{{r.issuer}}</td>
+<td class="mono" style="font-size: 13px; white-space: nowrap; color: {{r.mutedColor}}">{{r.date}}</td>
+<td><span class="badge {{r.statusClass}}">{{r.status}}</span></td>
+<td class="mono" style="font-size: 13px; white-space: nowrap">{{r.batch}}</td>
+<td style="text-align: right; white-space: nowrap">
+<sc-if value="{{r.isAnchored}}" hint-placeholder-val="{{true}}"><a href="#" class="act" aria-label="Download proof for {{r.id}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v11"></path><path d="M7 10l5 5 5-5"></path><path d="M5 20h14"></path></svg>proof.json</a></sc-if>
+<sc-if value="{{r.isDraft}}" hint-placeholder-val="{{false}}"><a href="Confirm.dc.html" class="act">Confirm</a></sc-if>
+<sc-if value="{{r.isPending}}" hint-placeholder-val="{{false}}"><span style="font-size: 13px; color: #475569">Waiting for seal</span></sc-if>
+</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; font-size: 13px; color: #475569">
+<span>Showing 12 of 14 records</span>
+<span>Newest first</span>
+</div>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const raw = [
+      ['REC-000014', 'salary_slip_aug2026.pdf', '', '', '', 'draft', ''],
+      ['REC-000013', 'marksheet_sem5_scan.png', '', '', '', 'draft', ''],
+      ['REC-000012', 'experience_letter_vk.pdf', 'Experience letter', 'Nimbus Analytics Pvt Ltd', '2026-07-15', 'pending', ''],
+      ['REC-000011', 'degree_certificate_bt.pdf', 'Degree certificate', 'Deccan Institute of Technology', '2026-06-14', 'pending', ''],
+      ['REC-000010', 'release_notes.txt', 'Other', 'Deccan Institute of Technology', '2026-05-02', 'pending', ''],
+      ['REC-000009', 'offer_letter_2026.pdf', 'Offer letter', 'Nimbus Analytics Pvt Ltd', '2026-04-10', 'anchored', 'BATCH-0002'],
+      ['REC-000008', 'salary_slip_jul2026.pdf', 'Salary slip', 'Nimbus Analytics Pvt Ltd', '2026-07-31', 'anchored', 'BATCH-0002'],
+      ['REC-000007', 'marksheet_sem4.pdf', 'Marksheet', 'Sahyadri University', '2026-05-30', 'anchored', 'BATCH-0002'],
+      ['REC-000006', 'salary_slip_jun2026.pdf', 'Salary slip', 'Nimbus Analytics Pvt Ltd', '2026-06-30', 'anchored', 'BATCH-0002'],
+      ['REC-000005', 'degree_certificate_ak.pdf', 'Degree certificate', 'Deccan Institute of Technology', '2026-06-14', 'anchored', 'BATCH-0001'],
+      ['REC-000004', 'marksheet_sem3.pdf', 'Marksheet', 'Sahyadri University', '2026-01-12', 'anchored', 'BATCH-0001'],
+      ['REC-000003', 'salary_slip_may2026.pdf', 'Salary slip', 'Nimbus Analytics Pvt Ltd', '2026-05-31', 'anchored', 'BATCH-0001']
+    ];
+    const rows = raw.map(([id, file, type, issuer, date, status, batch]) => ({
+      id, file,
+      type: type || 'not confirmed',
+      issuer: issuer || '—',
+      date: date || '—',
+      status,
+      batch: batch || '—',
+      statusClass: 's-' + status,
+      mutedColor: type ? '#0F172A' : '#64748B',
+      isAnchored: status === 'anchored',
+      isDraft: status === 'draft',
+      isPending: status === 'pending'
+    }));
+    return { rows };
+  }
+}
+</script>
+</body>
+</html>
