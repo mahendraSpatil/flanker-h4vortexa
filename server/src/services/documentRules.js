@@ -40,8 +40,7 @@ export function sniffKind(buffer) {
   return null;
 }
 
-function isUtf8Text(buffer) {
-  if (buffer.includes(0)) return false; // NUL bytes: binary, not text
+function isValidUtf8(buffer) {
   try {
     new TextDecoder('utf-8', { fatal: true }).decode(buffer);
     return true;
@@ -59,7 +58,8 @@ function extensionOf(fileName) {
  * Validate an upload: present, non-empty, <= 10 MB, an accepted type whose bytes match its extension.
  * @param {{ buffer?: Buffer, originalName?: string }} file
  * @returns {{ mime: string, fileName: string, kind: string }}
- * @throws {AppError} NO_FILE, EMPTY_FILE, FILE_TOO_LARGE, UNSUPPORTED_TYPE
+ * @throws {AppError} NO_FILE, EMPTY_FILE, FILE_TOO_LARGE, UNSUPPORTED_TYPE,
+ *   INVALID_TEXT_ENCODING (a .txt that is not valid UTF-8)
  */
 export function validateUpload({ buffer, originalName }) {
   if (!buffer) {
@@ -80,15 +80,30 @@ export function validateUpload({ buffer, originalName }) {
   }
 
   const [expectedKind] = expected;
-  const sniffed = sniffKind(buffer) ?? (isUtf8Text(buffer) ? 'txt' : null);
-  if (sniffed !== expectedKind) {
-    const message =
-      expectedKind === 'txt'
-        ? 'Text files must be UTF-8 plain text'
-        : `The file content is not a valid ${expectedKind.toUpperCase()} (it does not match its ${extension} extension)`;
-    throw new AppError('UNSUPPORTED_TYPE', 415, message, { extension, detected: sniffed });
+  const sniffed = sniffKind(buffer);
+  if (expectedKind === 'txt') {
+    // Binary pretending to be text (a renamed PDF/image, or NUL bytes) is the wrong type...
+    if (sniffed || buffer.includes(0)) {
+      throw new AppError('UNSUPPORTED_TYPE', 415, 'This .txt file contains binary data, not plain text', {
+        extension,
+        detected: sniffed ?? 'binary',
+      });
+    }
+    // ...while text in another encoding (e.g. UTF-16, Windows-1252) is an encoding problem.
+    if (!isValidUtf8(buffer)) throw invalidTextEncoding();
+  } else if (sniffed !== expectedKind) {
+    throw new AppError(
+      'UNSUPPORTED_TYPE',
+      415,
+      `The file content is not a valid ${expectedKind.toUpperCase()} (it does not match its ${extension} extension)`,
+      { extension, detected: sniffed },
+    );
   }
   return { mime: KINDS[expectedKind].mime, fileName, kind: expectedKind };
+}
+
+function invalidTextEncoding() {
+  return new AppError('INVALID_TEXT_ENCODING', 415, 'Text files must be valid UTF-8. Re-save the file as UTF-8 and upload it again');
 }
 
 /**
@@ -195,16 +210,14 @@ export function parseListFilters(query = {}) {
 /**
  * fileHash of the raw upload, with the normalisation core picks ("text-v1" for .txt, else "none").
  * @returns {{ fileHash: string, normalization: 'none' | 'text-v1' }}
- * @throws {AppError} UNSUPPORTED_TYPE (415) when a .txt is not valid UTF-8
+ * @throws {AppError} INVALID_TEXT_ENCODING (415) when core rejects a .txt as not valid UTF-8
  */
 export function hashUpload(buffer, { fileName, mime }) {
   const normalization = detectNormalization({ fileName, mime });
   try {
     return { fileHash: fileHash(buffer, { normalization }), normalization };
   } catch (err) {
-    if (err.code === 'INVALID_TEXT_ENCODING') {
-      throw new AppError('UNSUPPORTED_TYPE', 415, 'Text files must be UTF-8 plain text', { detected: 'binary' });
-    }
+    if (err.code === 'INVALID_TEXT_ENCODING') throw invalidTextEncoding();
     throw err;
   }
 }

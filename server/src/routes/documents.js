@@ -45,9 +45,10 @@ function receiveFile(req, res, next) {
  * POST /api/documents  (multipart field "file"; PDF, PNG/JPG or TXT, max 10 MB)
  * -> 201 { recordId, fileHash, status: "draft",
  *          suggestions: { docType, issuer, date, confidence: {...}, evidence: {...} },
- *          extractionPath: "ai" | "fallback", fileName, mime, warnings: string[] }
+ *          extractionPath: "ai" | "fallback", fileName, mime, textMethod, warnings: string[] }
  * -> 409 DUPLICATE with details { recordId, batchId, status } when fileHash already exists
- * -> 400 NO_FILE | EMPTY_FILE, 413 FILE_TOO_LARGE, 415 UNSUPPORTED_TYPE
+ * -> 400 NO_FILE | EMPTY_FILE | UPLOAD_INVALID, 413 FILE_TOO_LARGE,
+ *    415 UNSUPPORTED_TYPE (wrong type, or binary in a .txt) | INVALID_TEXT_ENCODING (.txt not UTF-8)
  */
 router.post('/api/documents', receiveFile, async (req, res) => {
   const result = await registry.upload({

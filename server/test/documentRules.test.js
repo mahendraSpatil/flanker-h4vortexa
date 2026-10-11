@@ -1,15 +1,21 @@
 // Owner: Mahendra | Upload sniffing, confirm-field validation and list filters
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import {
+import fs from 'node:fs';
+import { after, test } from 'node:test';
+import { JPEG_BYTES, PNG_BYTES, sha256Hex, tinyPdf } from './documentHelpers.js';
+import { prepareTestEnv } from './helpers.js';
+
+// Every server test points server code at a temp DB + storage BEFORE importing it (CLAUDE.md).
+const { tempDir } = prepareTestEnv();
+after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+const {
   MAX_UPLOAD_BYTES,
   hashUpload,
   parseListFilters,
   sanitizeFileName,
   validateConfirmFields,
   validateUpload,
-} from '../src/services/documentRules.js';
-import { JPEG_BYTES, PNG_BYTES, sha256Hex, tinyPdf } from './documentHelpers.js';
+} = await import('../src/services/documentRules.js');
 
 const code = (fn) => {
   try {
@@ -36,11 +42,21 @@ test('rejects missing, empty, oversized, unsupported and mismatched files', () =
   );
   assert.equal(code(() => validateUpload({ buffer: tinyPdf(), originalName: 'a.docx' })), 'UNSUPPORTED_TYPE');
   assert.equal(code(() => validateUpload({ buffer: PNG_BYTES, originalName: 'fake.pdf' })), 'UNSUPPORTED_TYPE');
-  assert.equal(code(() => validateUpload({ buffer: tinyPdf(), originalName: 'renamed.txt' })), 'UNSUPPORTED_TYPE');
-  assert.equal(
-    code(() => validateUpload({ buffer: Buffer.from([0xff, 0xfe, 0x41]), originalName: 'utf16.txt' })),
-    'UNSUPPORTED_TYPE',
-  );
+});
+
+test('.txt: binary (renamed file, NUL bytes) is UNSUPPORTED_TYPE; non-UTF-8 text is INVALID_TEXT_ENCODING', () => {
+  const err = (buffer) => {
+    try {
+      validateUpload({ buffer, originalName: 'notes.txt' });
+    } catch (e) {
+      return [e.code, e.status];
+    }
+    return ['NO_ERROR'];
+  };
+  assert.deepEqual(err(tinyPdf()), ['UNSUPPORTED_TYPE', 415], 'a PDF renamed to .txt');
+  assert.deepEqual(err(Buffer.from('abc\u0000def')), ['UNSUPPORTED_TYPE', 415], 'NUL bytes');
+  assert.deepEqual(err(Buffer.from([0x52, 0xe9, 0x73, 0x75, 0x6d, 0xe9])), ['INVALID_TEXT_ENCODING', 415], 'Windows-1252 "Résumé"');
+  assert.deepEqual(err(Buffer.from([0xff, 0xfe, 0x41])), ['INVALID_TEXT_ENCODING', 415], 'stray UTF-16 BOM bytes');
 });
 
 test('hashUpload uses core: raw bytes for PDF, text-v1 for .txt', () => {
@@ -52,6 +68,8 @@ test('hashUpload uses core: raw bytes for PDF, text-v1 for .txt', () => {
   const txt = hashUpload(Buffer.from('\uFEFFLine one  \r\nLine two\r\n\r\n'), { fileName: 'a.txt', mime: 'text/plain' });
   assert.equal(txt.normalization, 'text-v1');
   assert.equal(txt.fileHash, sha256Hex(Buffer.from('Line one\nLine two')), 'BOM, CRLF, trailing blanks and final newlines removed');
+
+  assert.equal(code(() => hashUpload(Buffer.from([0xc3, 0x28]), { fileName: 'a.txt', mime: 'text/plain' })), 'INVALID_TEXT_ENCODING', "core's error code is passed through");
 });
 
 test('file names lose directories and control chars; latin1-mangled UTF-8 is recovered', () => {
