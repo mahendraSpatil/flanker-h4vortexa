@@ -22,7 +22,7 @@ A document moves through three states: `draft` (uploaded) → `pending` (metadat
 
 **Registration (registry app + server)**
 
-1. **Upload.** Validate type (PDF, PNG/JPG, TXT) and size (max 10 MB). Compute `fileHash = SHA-256(raw bytes)` immediately. For `.txt` only, normalise first: CRLF → LF, strip trailing spaces per line, Unicode NFC.
+1. **Upload.** Validate type (PDF, PNG/JPG, TXT) and size (max 10 MB). Compute `fileHash = SHA-256(raw bytes)` immediately. For `.txt` files the text-v1 rule applies (see Hashing).
 2. **Duplicate check.** If `fileHash` exists, return 409 with the existing recordId and batch.
 3. **Store** the file at `server/storage/<fileHash>` and save the record as `draft`.
 4. **Extract text.** PDF text layer first (pdf-parse); OCR (tesseract.js) only when there is no text layer or the file is an image.
@@ -348,11 +348,11 @@ Frontend and backend work in parallel against this contract; frontends start wit
 | `POST /api/documents/:recordId/confirm` | `{ docType, issuer, date }` | `{ record, leaf, status:"pending" }`; 400 `VALIDATION` with field errors | Mahendra |
 | `GET /api/documents` | query `status, docType, issuer, batchId` | `[ record ]` | Mahendra |
 | `GET /api/documents/:recordId/file` | — | the stored file | Mahendra |
-| `GET /api/documents/:recordId/proof` | — | `proof.json` (404 `NOT_ANCHORED` if not anchored) | Archit |
+| `GET /api/documents/:recordId/proof` | — | `proof.json` (404 `NOT_ANCHORED` if not anchored; 409 `RECORD_INTEGRITY_FAILED` if the stored record no longer folds to its batch root: run the audit) | Archit |
 | `POST /api/batches/seal` | — | `{ batchId, root, leafCount, txHash, blockNumber }`; 400 `NOTHING_PENDING` | Archit |
-| `GET /api/batches` | — | `[ { batchId, root, leafCount, txHash, blockNumber, publishedAt } ]` | Archit |
-| `POST /api/audit` | — | `{ batches:[ { batchId, status:"OK"\|"MISMATCH", dbRoot, chainRoot, changedRecords:[recordId] } ] }` | Archit |
-| `POST /api/demo/tamper` | `{ type:"stored_file"\|"db_metadata", recordId }` | `{ ok:true, detail }` (demo only) | Archit |
+| `GET /api/batches` | — | `[ { batchId, root, leafCount, txHash, blockNumber, publishedAt, records:[recordId] } ]` newest first | Archit |
+| `POST /api/audit` | — | `{ checkedAt, batches:[ { batchId, status:"OK"\|"MISMATCH", dbRoot, storedRoot, chainRoot, leafCount, chainLeafCount, changedRecords:[recordId], changedFiles:[recordId] } ], onChainOnly:[batchId] }` (read-only); 503 `CHAIN_UNREACHABLE` | Archit |
+| `POST /api/demo/tamper` | `{ type:"stored_file"\|"db_metadata"\|"restore", recordId }` | `{ ok:true, detail }` (demo only; `restore` undoes the record's latest tamper) | Archit |
 | `POST /api/explain` | `{ verdict, checks }` (no document, no DB lookup) | `{ explanation, path:"ai"\|"template" }` | Mahendra |
 | `GET /api/audit-log` | — | `[ entry ]` newest first | Archit |
 

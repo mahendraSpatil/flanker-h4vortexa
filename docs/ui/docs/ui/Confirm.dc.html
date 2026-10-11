@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ProofChain Registry: Confirm metadata</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#4338CA}a:hover{color:#3730A3}
+.card{background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #E2E8F0}
+.card-t{margin:0;font-size:15px;font-weight:600}
+.mono{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+.hash{display:inline-flex;align-items:center;gap:2px;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;background:#F1F5F9;border:1px solid #E2E8F0;border-radius:6px;padding:1px 2px 1px 8px;color:#0F172A;white-space:nowrap}
+.copy{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;background:transparent;border-radius:4px;color:#475569;cursor:pointer}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.s-draft{background:#F1F5F9;color:#334155}
+.s-ai{background:#F5F3FF;color:#6D28D9}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border-radius:8px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;border:1px solid transparent}
+.btn-p{background:#4F46E5;color:#FFFFFF}.btn-p:hover{background:#4338CA;color:#FFFFFF}
+.btn-s{background:#FFFFFF;color:#0F172A;border-color:#CBD5E1}.btn-s:hover{background:#F8FAFC;color:#0F172A}
+.nav a{padding:8px 12px;border-radius:8px;font-size:14px;font-weight:500;text-decoration:none;color:#475569}
+.nav a:hover{background:#F1F5F9;color:#0F172A}
+.nav a.on{background:#EEF2FF;color:#4338CA}
+.field{border:1px solid #E2E8F0;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.lbl{font-size:13px;font-weight:600;color:#0F172A}
+.ctl{min-height:44px;box-sizing:border-box;padding:0 12px;border:1px solid #CBD5E1;border-radius:8px;font:inherit;font-size:15px;color:#0F172A;background:#FFFFFF;width:100%}
+.ev{margin:0;padding:8px 12px;border-radius:6px;background:#FEFCE8;border:1px solid #FDE68A;font-size:13px;color:#713F12}
+.hl{background:#FEF08A;border-radius:3px;padding:0 2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F8FAFC; color: #0F172A; font-family: 'IBM Plex Sans', system-ui, sans-serif">
+<header style="background: #FFFFFF; border-bottom: 1px solid #E2E8F0">
+<div style="max-width: 1200px; margin: 0 auto; padding: 10px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 24px">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: #0F172A">
+<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect x="0" y="0" width="30" height="30" rx="8" fill="#4F46E5"></rect><path d="M15 9 L9 20 M15 9 L21 20" stroke="#C7D2FE" strokeWidth="1.6" fill="none"></path><circle cx="15" cy="9" r="3" fill="#FFFFFF"></circle><circle cx="9" cy="20.5" r="2.6" fill="#FFFFFF"></circle><circle cx="21" cy="20.5" r="2.6" fill="#FFFFFF"></circle></svg>
+<span style="font-size: 17px; font-weight: 700; letter-spacing: -0.01em">ProofChain</span>
+<span style="font-size: 13px; color: #475569; border-left: 1px solid #E2E8F0; padding-left: 10px">Registry</span>
+</a>
+<nav class="nav" aria-label="Registry" style="display: flex; flex-wrap: wrap; gap: 4px">
+<a href="Main.dc.html" class="on" aria-current="page">Upload</a>
+<a href="Records.dc.html">Records</a>
+<a href="Batches.dc.html">Batches</a>
+<a href="Audit.dc.html">Audit</a>
+<a href="Demo.dc.html">Demo</a>
+</nav>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 8px">
+<label for="actor" style="font-size: 13px; color: #475569">Acting as</label>
+<input id="actor" defaultValue="Archit" style="width: 140px; min-height: 36px; box-sizing: border-box; padding: 0 10px; border: 1px solid #CBD5E1; border-radius: 8px; font: inherit; font-size: 14px; color: #0F172A; background: #FFFFFF">
+</div>
+</div>
+</header>
+
+<main style="max-width: 1200px; margin: 0 auto; padding: 24px 24px 56px; box-sizing: border-box">
+<nav aria-label="Breadcrumb" style="font-size: 13px; color: #475569; margin-bottom: 12px"><a href="Main.dc.html">Upload</a> <span aria-hidden="true">/</span> <span class="mono">REC-000014</span></nav>
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px">
+<div>
+<h1 style="margin: 0 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Confirm details</h1>
+<p style="margin: 0; font-size: 15px; color: #475569">Check each value against the document. Only what you confirm goes into the record's leaf.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<span class="badge s-draft">draft</span>
+<span style="font-size: 14px; font-weight: 500">salary_slip_aug2026.pdf</span>
+<span class="hash" title="0x3f6e0c2a9d4b71e85a0f3c6b2e9d14a7c8b5f20e6d3a91c47b08e5f2a6d4b91c">0x3f6e…b91c<button class="copy" aria-label="Copy file hash"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"></path></svg></button></span>
+</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+<section class="card" aria-labelledby="prev-title" style="flex: 1 1 460px; min-width: 0">
+<div class="card-h"><h2 id="prev-title" class="card-t">Document</h2><span style="font-size: 13px; color: #475569">Highlighted lines are the AI's evidence</span></div>
+<div style="padding: 20px; background: #F1F5F9; border-radius: 0 0 12px 12px">
+<div style="background: #FFFFFF; box-shadow: 0 1px 2px rgba(15,23,42,0.08); border: 1px solid #E2E8F0; padding: 32px 32px 40px; font-size: 13px; line-height: 1.6; color: #1E293B; min-height: 560px; box-sizing: border-box">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1E293B; padding-bottom: 12px; margin-bottom: 16px">
+<div><div style="font-size: 18px; font-weight: 700; letter-spacing: 0.02em"><span class="hl">NIMBUS ANALYTICS PVT LTD</span></div><div style="color: #475569">Baner Road, Pune 411045</div></div>
+<div style="text-align: right; color: #475569">Confidential</div>
+</div>
+<div style="text-align: center; font-weight: 600; font-size: 14px; margin-bottom: 16px"><span class="hl">Salary Slip for the month of August 2026</span></div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 24px; margin-bottom: 20px">
+<div>Employee: Riya Kulkarni</div><div>Employee ID: NA-1042</div>
+<div>Designation: Software Engineer</div><div><span class="hl">Pay date: 31/08/2026</span></div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px">
+<div>
+<div style="font-weight: 600; border-bottom: 1px solid #CBD5E1; margin-bottom: 6px">Earnings</div>
+<div style="display: flex; justify-content: space-between"><span>Basic</span><span>30,000</span></div>
+<div style="display: flex; justify-content: space-between"><span>HRA</span><span>14,000</span></div>
+<div style="display: flex; justify-content: space-between"><span>Special allowance</span><span>8,000</span></div>
+<div style="display: flex; justify-content: space-between; font-weight: 600; border-top: 1px solid #CBD5E1; margin-top: 6px"><span>Gross</span><span>52,000</span></div>
+</div>
+<div>
+<div style="font-weight: 600; border-bottom: 1px solid #CBD5E1; margin-bottom: 6px">Deductions</div>
+<div style="display: flex; justify-content: space-between"><span>Provident fund</span><span>1,800</span></div>
+<div style="display: flex; justify-content: space-between"><span>Professional tax</span><span>200</span></div>
+<div style="display: flex; justify-content: space-between; font-weight: 600; border-top: 1px solid #CBD5E1; margin-top: 6px"><span>Total</span><span>2,000</span></div>
+</div>
+</div>
+<div style="margin-top: 24px; padding: 12px 16px; border: 1px solid #1E293B; display: flex; justify-content: space-between; font-size: 15px; font-weight: 700"><span>Net pay</span><span>₹50,000</span></div>
+<div style="margin-top: 40px; color: #64748B; font-size: 12px">Fictional document for the ProofChain demo.</div>
+</div>
+</div>
+</section>
+
+<section class="card" aria-labelledby="form-title" style="flex: 1 1 420px; min-width: 0">
+<div class="card-h">
+<h2 id="form-title" class="card-t">Metadata</h2>
+<span class="badge s-ai">Extracted by AI · Gemini</span>
+</div>
+<form style="padding: 20px; display: flex; flex-direction: column; gap: 16px">
+
+<div class="field">
+<label for="doctype" class="lbl">Document type</label>
+<select id="doctype" class="ctl" defaultValue="SALARY_SLIP">
+<option value="DEGREE_CERTIFICATE">Degree certificate</option>
+<option value="MARKSHEET">Marksheet</option>
+<option value="SALARY_SLIP">Salary slip</option>
+<option value="OFFER_LETTER">Offer letter</option>
+<option value="EXPERIENCE_LETTER">Experience letter</option>
+<option value="OTHER">Other</option>
+</select>
+<div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #475569">
+<span class="badge s-ai">AI</span>
+<span>Confidence</span>
+<span aria-hidden="true" style="flex: 1; height: 6px; border-radius: 999px; background: #E2E8F0; overflow: hidden"><span style="display: block; width: 94%; height: 100%; background: #4F46E5"></span></span>
+<span style="font-weight: 600; color: #0F172A">94%</span>
+</div>
+<p class="ev">“Salary Slip for the month of August 2026”</p>
+</div>
+
+<div class="field">
+<label for="issuer" class="lbl">Issuer</label>
+<input id="issuer" class="ctl" defaultValue="Nimbus Analytics Pvt Ltd">
+<div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #475569">
+<span class="badge s-ai">AI</span>
+<span>Confidence</span>
+<span aria-hidden="true" style="flex: 1; height: 6px; border-radius: 999px; background: #E2E8F0; overflow: hidden"><span style="display: block; width: 89%; height: 100%; background: #4F46E5"></span></span>
+<span style="font-weight: 600; color: #0F172A">89%</span>
+</div>
+<p class="ev">“NIMBUS ANALYTICS PVT LTD”</p>
+</div>
+
+<div class="field" style="border-color: #FCD34D; background: #FFFBEB">
+<label for="docdate" class="lbl">Date</label>
+<input id="docdate" class="ctl" type="date" defaultValue="2026-08-31">
+<div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #475569">
+<span class="badge s-ai">AI</span>
+<span>Confidence</span>
+<span aria-hidden="true" style="flex: 1; height: 6px; border-radius: 999px; background: #E2E8F0; overflow: hidden"><span style="display: block; width: 61%; height: 100%; background: #B45309"></span></span>
+<span style="font-weight: 600; color: #B45309">61% · check this</span>
+</div>
+<p class="ev">“Pay date: 31/08/2026”</p>
+<span style="font-size: 12px; color: #475569">Must be a real date, not in the future.</span>
+</div>
+
+<div>
+<div style="font-size: 13px; font-weight: 600; margin-bottom: 6px">Canonical record that will be hashed</div>
+<pre class="mono" style="margin: 0; padding: 12px; border-radius: 8px; background: #0F172A; color: #E2E8F0; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all">{"date":"2026-08-31","docType":"SALARY_SLIP","fileHash":"0x3f6e…b91c","issuer":"Nimbus Analytics Pvt Ltd","recordId":"REC-000014","v":1}</pre>
+<div style="font-size: 12px; color: #475569; margin-top: 6px">leaf = SHA-256(0x00 ‖ this text). AI suggestions and OCR text are never hashed.</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 12px">
+<a href="Records.dc.html" class="btn btn-p">Confirm and mark pending</a>
+<a href="Main.dc.html" class="btn btn-s">Back</a>
+</div>
+</form>
+</section>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

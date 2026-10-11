@@ -45,8 +45,9 @@ function loadConfig(env) {
       publisherPrivateKey,
       geminiApiKey,
       aiMode,
-      dbPath: path.join(SERVER_ROOT, 'data', 'proofchain.db'),
-      storageDir: path.join(SERVER_ROOT, 'storage'),
+      // DB_PATH / STORAGE_DIR override the defaults (server/test points them at a temp directory)
+      dbPath: path.resolve(env.DB_PATH?.trim() || path.join(SERVER_ROOT, 'data', 'proofchain.db')),
+      storageDir: path.resolve(env.STORAGE_DIR?.trim() || path.join(SERVER_ROOT, 'storage')),
     }),
   };
 }

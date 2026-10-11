@@ -23,6 +23,7 @@
     "verifier": "npm run dev -w verifier",
     "seed": "node scripts/seed.js",
     "test": "npm test -w core && npm test -w contracts",
+    "test:server": "npm run test:server -w server",
     "format": "prettier --write ."
   },
   "devDependencies": {

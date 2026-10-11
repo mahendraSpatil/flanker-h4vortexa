@@ -59,7 +59,7 @@ Two byte-different inputs can represent the same thing (reordered JSON keys, dif
 **Our rules:**
 
 - **Files (PDF, images):** hash the exact file bytes, no normalization. A re-saved PDF is a different file, and rejecting it is correct; normalizing PDF text would let someone swap a signature image undetected.
-- **Plain-text files (`.txt`):** normalize first (CRLF → LF, strip trailing spaces on each line, Unicode NFC), then hash. A harmless invisible change no longer breaks the hash.
+- **Plain-text files (`.txt`), rule `text-v1`:** decode the bytes as UTF-8 strictly (a file that is not valid UTF-8 is rejected at upload), strip one leading BOM, convert CRLF and lone CR to LF, remove spaces and tabs at the end of every line, remove trailing newlines at the end of the file, apply Unicode NFC, re-encode as UTF-8, then hash. The registry picks `text-v1` for a `.txt` name or `text/plain` MIME type and records it in `proof.scheme.fileNormalization`, so the verifier applies exactly the same rule. A harmless invisible change (line endings, trailing blanks, a BOM) no longer breaks the hash.
 - **Records:** the canonical record `{v, recordId, fileHash, docType, issuer, date}` is serialized with keys sorted, no whitespace, UTF-8, and normalized values (trimmed, NFC, ISO dates, fixed docType list). We call this `json-sorted-v1`.
 
 For our flat record of strings and one small integer, `json-sorted-v1` produces the same bytes as the JSON Canonicalization Scheme (RFC 8785): both sort keys by UTF-16 code units and use standard JSON string escaping.
