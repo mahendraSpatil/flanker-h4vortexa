@@ -1,12 +1,15 @@
 // Owner: Mahendra | Confirm screen: review AI suggestions + evidence, edit, confirm metadata
-import { DOC_TYPES, normText } from '@proofchain/core';
-import { useEffect, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+// Layout follows "ProofChain UI Screens" screen 2.
+import { DOC_TYPES, ISSUER_MAX_LENGTH, canonicalJSON, normText } from '@proofchain/core';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import * as documents from '../api/documents.js';
+import { HashChip } from './Upload.jsx';
 
-const ISSUER_MAX_CHARS = 120;
 const FIELDS = ['docType', 'issuer', 'date'];
-const FIELD_LABELS = { docType: 'Document type', issuer: 'Issuer', date: 'Issue date' };
+const FIELD_LABELS = { docType: 'Document type', issuer: 'Issuer', date: 'Date' };
+/** Below this the field is highlighted with "check this". */
+const LOW_CONFIDENCE = 0.7;
 
 const docTypeLabel = (type) =>
   type
@@ -29,16 +32,19 @@ function isCalendarDate(value) {
   return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
 }
 
-/** Mirrors the server rules so mistakes show up before the request; the server stays the authority. */
+/**
+ * Mirrors the server rules so mistakes show before the request; the server stays the authority.
+ * Messages are fragments read after the field label, like the server's ("Issuer is required").
+ */
 function validate(values, today) {
   const errors = {};
-  if (!DOC_TYPES.includes(values.docType)) errors.docType = 'Choose a document type.';
+  if (!DOC_TYPES.includes(values.docType)) errors.docType = 'is required';
   const issuer = normText(values.issuer);
-  if (!issuer) errors.issuer = 'Issuer is required.';
-  else if ([...issuer].length > ISSUER_MAX_CHARS) errors.issuer = `At most ${ISSUER_MAX_CHARS} characters.`;
-  if (!values.date) errors.date = 'Date is required.';
-  else if (!isCalendarDate(values.date)) errors.date = 'Not a real date.';
-  else if (values.date > today) errors.date = 'The date cannot be in the future.';
+  if (!issuer) errors.issuer = 'is required';
+  else if ([...issuer].length > ISSUER_MAX_LENGTH) errors.issuer = `must be at most ${ISSUER_MAX_LENGTH} characters`;
+  if (!values.date) errors.date = 'is required';
+  else if (!isCalendarDate(values.date)) errors.date = 'must be a real date';
+  else if (values.date > today) errors.date = 'must not be in the future';
   return errors;
 }
 
@@ -78,9 +84,9 @@ export default function Confirm() {
         if (cancelled) return;
         const record = records.find((r) => r.recordId === recordId);
         if (record) setView(toView(record));
-        else setLoadError(`No record ${recordId}.`);
+        else setLoadError({ code: 'NOT_FOUND', message: `No record ${recordId}.` });
       })
-      .catch((err) => !cancelled && setLoadError(err.message));
+      .catch((err) => !cancelled && setLoadError({ code: err.code, message: err.message }));
     return () => {
       cancelled = true;
     };
@@ -89,67 +95,139 @@ export default function Confirm() {
   // After navigating from one confirm URL to another, never show the previous record's form.
   const current = view?.recordId === recordId ? view : null;
 
-  if (loadError) {
-    return (
-      <section>
-        <h1 className="text-2xl font-semibold">Confirm metadata</h1>
-        <p role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {loadError}
-        </p>
-        <Link to="/" className="mt-4 inline-block text-sm font-medium underline">
-          Upload a document
-        </Link>
-      </section>
-    );
-  }
-  if (!current) return <p className="text-slate-600">Loading {recordId}…</p>;
-
   return (
     <section>
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Confirm metadata</h1>
-        <p className="font-mono text-sm text-slate-600">{current.recordId}</p>
-      </div>
-      <p className="mt-2 max-w-3xl text-slate-600">
-        Check each value against the document and correct anything wrong. Only the values you confirm go into the
-        record's fingerprint (leaf); suggestions are never hashed.
-      </p>
+      <nav className="text-sm text-slate-500" aria-label="Breadcrumb">
+        <Link to="/" className="underline hover:text-slate-900">
+          Upload
+        </Link>{' '}
+        / <span className="font-mono">{recordId}</span>
+      </nav>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
-        <DocumentPreview view={current} />
-        {/* key: a different record gets a fresh form */}
-        <ConfirmForm key={current.recordId} view={current} />
-      </div>
+      {loadError ? (
+        <div role="alert" className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <p className="font-mono text-xs font-semibold">{loadError.code}</p>
+          <p>{loadError.message}</p>
+        </div>
+      ) : !current ? (
+        <p className="mt-6 text-slate-500">Loading {recordId}…</p>
+      ) : (
+        <>
+          <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-900">Confirm details</h1>
+              <p className="mt-1 text-slate-600">
+                Check each value against the document. Only what you confirm goes into the record's leaf.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <StatusBadge status={current.status} />
+              <span className="max-w-56 truncate font-semibold text-slate-900">{current.fileName}</span>
+              <HashChip value={current.fileHash} />
+            </div>
+          </div>
+
+          <div className="mt-6 grid items-start gap-6 lg:grid-cols-2 [&>*]:min-w-0">
+            <DocumentPanel view={current} />
+            {/* key: a different record gets a fresh form */}
+            <ConfirmForm key={current.recordId} view={current} />
+          </div>
+        </>
+      )}
     </section>
   );
 }
 
-function DocumentPreview({ view }) {
-  const url = documents.fileUrl(view.recordId);
+function StatusBadge({ status }) {
+  const styles = {
+    draft: 'bg-slate-100 text-slate-700',
+    pending: 'bg-amber-100 text-amber-800',
+    anchored: 'bg-emerald-100 text-emerald-800',
+  };
+  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${styles[status] ?? styles.draft}`}>{status}</span>;
+}
+
+function Card({ title, aside, children, bodyClass = 'p-5' }) {
   return (
-    <div className="lg:sticky lg:top-6 lg:self-start">
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2 text-sm">
-          <span className="truncate font-medium">{view.fileName ?? 'Document'}</span>
-          <a href={url} target="_blank" rel="noreferrer" className="ml-4 shrink-0 text-slate-600 underline hover:text-slate-900">
-            Open
-          </a>
-        </div>
-        {view.mime?.startsWith('image/') ? (
-          <img src={url} alt={`Uploaded document ${view.fileName ?? view.recordId}`} className="max-h-[70vh] w-full object-contain" />
-        ) : (
-          <iframe src={url} title={`Uploaded document ${view.fileName ?? view.recordId}`} className="h-[70vh] w-full" />
-        )}
+    <div className="rounded-lg border border-slate-200 bg-white">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        {aside}
       </div>
-      <dl className="mt-3 text-xs text-slate-500">
-        <dt className="inline">File hash (SHA-256): </dt>
-        <dd className="inline break-all font-mono">{view.fileHash}</dd>
-      </dl>
+      <div className={bodyClass}>{children}</div>
     </div>
   );
 }
 
+// ---- left: the document -------------------------------------------------------------------------
+
+function DocumentPanel({ view }) {
+  const url = documents.fileUrl(view.recordId);
+  const isText = view.mime === 'text/plain';
+  const isImage = view.mime?.startsWith('image/');
+  const evidence = FIELDS.map((f) => view.suggestions?.evidence?.[f]).filter(Boolean);
+
+  return (
+    <Card
+      title="Document"
+      aside={
+        <span className="text-xs text-slate-500">
+          {isText && evidence.length > 0 ? "Highlighted lines are the AI's evidence" : (
+            <a href={url} target="_blank" rel="noreferrer" className="text-indigo-600 underline">
+              Open in new tab
+            </a>
+          )}
+        </span>
+      }
+      bodyClass="bg-slate-100 p-4"
+    >
+      {isText ? (
+        <TextPreview url={url} evidence={evidence} />
+      ) : isImage ? (
+        <img src={url} alt={`Uploaded document ${view.fileName}`} className="mx-auto max-h-[75vh] w-full rounded bg-white object-contain shadow-sm" />
+      ) : (
+        <iframe src={url} title={`Uploaded document ${view.fileName}`} className="h-[75vh] w-full rounded bg-white shadow-sm" />
+      )}
+    </Card>
+  );
+}
+
+/** Text files are shown as <pre> so the evidence lines can be highlighted. */
+function TextPreview({ url, evidence }) {
+  const [text, setText] = useState(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(url)
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error(res.statusText))))
+      .then((body) => !cancelled && setText(body))
+      .catch(() => !cancelled && setFailed(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  if (failed) return <p className="text-sm text-rose-700">Could not load the file.</p>;
+  if (text === null) return <p className="text-sm text-slate-500">Loading…</p>;
+
+  const marks = new Set(evidence.map((line) => normText(line).toLowerCase()));
+  return (
+    <pre className="max-h-[75vh] overflow-auto rounded bg-white p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap text-slate-800 shadow-sm">
+      {text.split(/\r\n|\r|\n/).map((line, i) => (
+        // eslint-disable-next-line react/no-array-index-key -- lines of a static file
+        <span key={i} className={marks.has(normText(line).toLowerCase()) ? 'bg-yellow-200' : undefined}>
+          {line}
+          {'\n'}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
+// ---- right: the metadata form -------------------------------------------------------------------
+
 function ConfirmForm({ view }) {
+  const navigate = useNavigate();
   const today = localToday();
   const suggestions = view.suggestions;
   const initial = view.confirmed ?? {
@@ -159,26 +237,33 @@ function ConfirmForm({ view }) {
   };
   const [values, setValues] = useState({ docType: initial.docType ?? '', issuer: initial.issuer ?? '', date: initial.date ?? '' });
   const [errors, setErrors] = useState({});
-  const [checked, setChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [result, setResult] = useState(null);
   const [anchored, setAnchored] = useState(view.status === 'anchored');
 
+  const liveErrors = validate(values, today);
+  const canonical = useMemo(() => {
+    if (Object.keys(liveErrors).length > 0) return null;
+    return canonicalJSON({ recordId: view.recordId, fileHash: view.fileHash, docType: values.docType, issuer: values.issuer, date: values.date });
+    // liveErrors is derived from values
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values, view.recordId, view.fileHash]);
+
   if (result) return <ConfirmedPanel result={result} />;
 
+  const byAi = view.extractionPath === 'ai';
   const readOnly = anchored || submitting;
   const setField = (field, value) => {
-    setValues((current) => ({ ...current, [field]: value }));
-    setErrors((current) => ({ ...current, [field]: undefined }));
+    setValues((prev) => ({ ...prev, [field]: value }));
+    setErrors((prev) => ({ ...prev, [field]: undefined }));
   };
 
   async function handleSubmit(event) {
     event.preventDefault();
-    const found = validate(values, today);
-    setErrors(found);
+    setErrors(liveErrors);
     setSubmitError(null);
-    if (Object.keys(found).length > 0 || !checked) return;
+    if (Object.keys(liveErrors).length > 0) return;
 
     setSubmitting(true);
     try {
@@ -186,256 +271,254 @@ function ConfirmForm({ view }) {
     } catch (err) {
       if (err.code === 'VALIDATION') setErrors(err.details?.fields ?? {});
       if (err.code === 'ALREADY_ANCHORED') setAnchored(true);
-      setSubmitError(err.code === 'VALIDATION' ? 'The server rejected some fields. See the messages below.' : err.message);
+      setSubmitError({
+        code: err.code,
+        message: err.code === 'VALIDATION' ? 'The server rejected some fields. See the messages below.' : err.message,
+      });
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-4">
-      <SourceBanner view={view} anchored={anchored} />
+    <Card
+      title="Metadata"
+      aside={
+        view.status === 'draft' && (
+          <span className={`rounded px-2 py-0.5 text-xs font-semibold ${byAi ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
+            {byAi ? 'Extracted by AI · Gemini' : 'Extracted by rules · AI off or unavailable'}
+          </span>
+        )
+      }
+    >
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        <StateNote view={view} anchored={anchored} />
+        {view.warnings.map((warning) => (
+          <p key={warning} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {warning}
+          </p>
+        ))}
 
-      {view.warnings.map((warning) => (
-        <p key={warning} className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          {warning}
-        </p>
-      ))}
-
-      <SuggestionField
-        field="docType"
-        suggestions={suggestions}
-        value={values.docType}
-        error={errors.docType}
-        onUseSuggestion={setField}
-        format={docTypeLabel}
-      >
-        {(props) => (
-          <select {...props} value={values.docType} disabled={readOnly} onChange={(e) => setField('docType', e.target.value)}>
-            <option value="" disabled>
-              Choose a type…
-            </option>
-            {DOC_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {docTypeLabel(type)}
+        <Field field="docType" suggestions={suggestions} byAi={byAi} error={errors.docType} value={values.docType} onUseSuggestion={setField} format={docTypeLabel}>
+          {(props) => (
+            <select {...props} value={values.docType} disabled={readOnly} onChange={(e) => setField('docType', e.target.value)}>
+              <option value="" disabled>
+                Choose a type…
               </option>
-            ))}
-          </select>
-        )}
-      </SuggestionField>
-
-      <SuggestionField field="issuer" suggestions={suggestions} value={values.issuer} error={errors.issuer} onUseSuggestion={setField}>
-        {(props) => (
-          <input
-            {...props}
-            type="text"
-            value={values.issuer}
-            maxLength={ISSUER_MAX_CHARS + 20}
-            readOnly={readOnly}
-            placeholder="e.g. Pimpri Institute of Technology"
-            onChange={(e) => setField('issuer', e.target.value)}
-          />
-        )}
-      </SuggestionField>
-
-      <SuggestionField field="date" suggestions={suggestions} value={values.date} error={errors.date} onUseSuggestion={setField}>
-        {(props) => (
-          <input {...props} type="date" value={values.date} max={today} readOnly={readOnly} onChange={(e) => setField('date', e.target.value)} />
-        )}
-      </SuggestionField>
-
-      {!anchored && (
-        <>
-          <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm">
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={(e) => setChecked(e.target.checked)}
-              className="mt-0.5 h-4 w-4"
-              disabled={submitting}
-            />
-            <span>
-              I checked these details against the document. They will be locked into this record's fingerprint when
-              the batch is sealed.
-            </span>
-          </label>
-
-          {submitError && (
-            <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-              {submitError}
-            </p>
+              {DOC_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {docTypeLabel(type)}
+                </option>
+              ))}
+            </select>
           )}
+        </Field>
 
+        <Field field="issuer" suggestions={suggestions} byAi={byAi} error={errors.issuer} value={values.issuer} onUseSuggestion={setField}>
+          {(props) => (
+            <input
+              {...props}
+              type="text"
+              value={values.issuer}
+              readOnly={readOnly}
+              placeholder="e.g. Deccan Institute of Technology"
+              onChange={(e) => setField('issuer', e.target.value)}
+            />
+          )}
+        </Field>
+
+        <Field
+          field="date"
+          suggestions={suggestions}
+          byAi={byAi}
+          error={errors.date}
+          value={values.date}
+          onUseSuggestion={setField}
+          help="Must be a real date, not in the future."
+        >
+          {(props) => <input {...props} type="date" value={values.date} max={today} readOnly={readOnly} onChange={(e) => setField('date', e.target.value)} />}
+        </Field>
+
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Canonical record that will be hashed</p>
+          <pre className="mt-2 overflow-x-auto rounded-md bg-slate-900 p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-slate-100">
+            {canonical ?? 'Complete the fields above to see the exact text that will be hashed.'}
+          </pre>
+          <p className="mt-1 text-xs text-slate-500">
+            leaf = SHA-256(0x00 ‖ this text). AI suggestions and OCR text are never hashed.
+          </p>
+        </div>
+
+        {submitError && (
+          <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            <p className="font-mono text-xs font-semibold">{submitError.code}</p>
+            <p>{submitError.message}</p>
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          {!anchored && (
+            <button
+              type="submit"
+              disabled={submitting}
+              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+            >
+              {submitting ? 'Confirming…' : view.status === 'pending' ? 'Update and keep pending' : 'Confirm and mark pending'}
+            </button>
+          )}
           <button
-            type="submit"
-            disabled={!checked || submitting}
-            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            type="button"
+            onClick={() => navigate('/')}
+            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
-            {submitting ? 'Confirming…' : view.status === 'pending' ? 'Update confirmed details' : 'Confirm and create record'}
+            Back
           </button>
-        </>
-      )}
-    </form>
+        </div>
+      </form>
+    </Card>
   );
 }
 
-function SourceBanner({ view, anchored }) {
+function StateNote({ view, anchored }) {
   if (anchored) {
     return (
-      <p className="rounded-md border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-700">
-        This record is anchored in {view.confirmed?.batchId ?? 'a sealed batch'} and can no longer change.
+      <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+        Anchored in <span className="font-mono">{view.confirmed?.batchId ?? 'a sealed batch'}</span>. It can no longer change.
       </p>
     );
   }
   if (view.status === 'pending') {
     return (
-      <p className="rounded-md border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-700">
+      <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
         Already confirmed. You can still correct it until the batch is sealed; that changes its leaf.
       </p>
     );
   }
-  const byAi = view.extractionPath === 'ai';
-  return (
-    <p className="rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-      <span className="font-medium">{byAi ? 'Suggested by AI (Gemini).' : 'Suggested by rules (AI off or unavailable).'}</span>{' '}
-      Suggestions are advisory. You decide every value.
-    </p>
-  );
+  return null;
 }
 
-function SuggestionField({ field, suggestions, value, error, onUseSuggestion, format = (v) => v, children }) {
+function Field({ field, suggestions, byAi, value, error, help, onUseSuggestion, format = (v) => v, children }) {
   const id = `field-${field}`;
   const suggested = suggestions?.[field] ?? null;
   const confidence = suggestions?.confidence?.[field] ?? 0;
   const evidence = suggestions?.evidence?.[field] ?? '';
+  const low = suggested !== null && confidence < LOW_CONFIDENCE;
   const edited = suggested !== null && value !== suggested && normText(value ?? '') !== suggested;
-  const describedBy = [error && `${id}-error`, suggested && `${id}-evidence`].filter(Boolean).join(' ') || undefined;
+  const describedBy = [error && `${id}-error`, suggested && `${id}-evidence`, help && `${id}-help`].filter(Boolean).join(' ') || undefined;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className={`rounded-lg border p-4 ${error ? 'border-rose-300' : low ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'}`}>
       <div className="flex items-center justify-between gap-2">
-        <label htmlFor={id} className="text-sm font-medium text-slate-900">
+        <label htmlFor={id} className="text-sm font-semibold text-slate-900">
           {FIELD_LABELS[field]}
         </label>
-        {edited && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">Edited</span>}
+        {edited && (
+          <button type="button" onClick={() => onUseSuggestion(field, suggested)} className="text-xs font-medium text-indigo-600 underline">
+            Edited · use suggestion ({format(suggested)})
+          </button>
+        )}
       </div>
 
       {children({
         id,
         'aria-invalid': Boolean(error),
         'aria-describedby': describedBy,
-        className: `mt-2 w-full rounded-md border px-3 py-2 text-slate-900 ${
-          error ? 'border-red-400 bg-red-50' : 'border-slate-300'
+        className: `mt-2 w-full rounded-md border bg-white px-3 py-2 text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none ${
+          error ? 'border-rose-400' : 'border-slate-300'
         } read-only:bg-slate-50 disabled:bg-slate-50`,
       })}
 
-      {error && (
-        <p id={`${id}-error`} className="mt-1 text-sm text-red-700">
-          {error}
-        </p>
-      )}
-
       {suggested ? (
-        <div id={`${id}-evidence`} className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-slate-600">
-              Suggested: <span className="font-medium text-slate-900">{format(suggested)}</span>
+        <div id={`${id}-evidence`} className="mt-3 space-y-2">
+          <div className="flex items-center gap-3 text-xs">
+            <span className={`rounded px-1.5 py-0.5 font-semibold ${byAi ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
+              {byAi ? 'AI' : 'Rules'}
             </span>
-            {edited && (
-              <button type="button" onClick={() => onUseSuggestion(field, suggested)} className="text-sm font-medium text-slate-700 underline hover:text-slate-900">
-                Use suggestion
-              </button>
-            )}
+            <span className="text-slate-500">Confidence</span>
+            <ConfidenceBar value={confidence} low={low} />
           </div>
-          <ConfidenceMeter value={confidence} />
-          <figure>
-            <figcaption className="text-xs text-slate-500">Found in the document:</figcaption>
-            <blockquote className="mt-1 rounded border-l-4 border-slate-300 bg-slate-50 px-3 py-2 font-mono text-xs break-words text-slate-800">
-              {evidence}
-            </blockquote>
-          </figure>
+          <blockquote className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 font-mono text-xs break-words text-amber-900">
+            “{evidence}”
+          </blockquote>
         </div>
       ) : (
-        <p className="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-500">No suggestion found. Enter it from the document.</p>
+        <p className="mt-2 text-xs text-slate-500">No suggestion with evidence was found. Enter it from the document.</p>
+      )}
+
+      {error && (
+        <p id={`${id}-error`} className="mt-2 text-sm text-rose-700">
+          {FIELD_LABELS[field]} {error}
+        </p>
+      )}
+      {help && !error && (
+        <p id={`${id}-help`} className="mt-2 text-xs text-slate-500">
+          {help}
+        </p>
       )}
     </div>
   );
 }
 
-function ConfidenceMeter({ value }) {
+function ConfidenceBar({ value, low }) {
   const percent = Math.round(Math.min(1, Math.max(0, value)) * 100);
-  const level = value >= 0.75 ? 'High' : value >= 0.45 ? 'Medium' : 'Low';
-  const bar = value >= 0.75 ? 'bg-emerald-600' : value >= 0.45 ? 'bg-amber-500' : 'bg-red-500';
   return (
-    <div className="flex items-center gap-3">
+    <>
       <div
-        className="h-2 w-32 overflow-hidden rounded-full bg-slate-200"
+        className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200"
         role="meter"
         aria-label="Suggestion confidence"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
       >
-        <div className={`h-full ${bar}`} style={{ width: `${percent}%` }} />
+        <div className={`h-full rounded-full ${low ? 'bg-amber-600' : 'bg-indigo-600'}`} style={{ width: `${percent}%` }} />
       </div>
-      <span className="text-xs text-slate-600">
-        {level} confidence · {percent}%
+      <span className={`font-semibold ${low ? 'text-amber-700' : 'text-slate-700'}`}>
+        {percent}%{low ? ' · check this' : ''}
       </span>
-    </div>
+    </>
   );
 }
 
 function ConfirmedPanel({ result }) {
   const { record, leaf, canonical } = result;
-  const [copied, setCopied] = useState(false);
-
-  async function copyLeaf() {
-    try {
-      await navigator.clipboard.writeText(leaf);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   return (
-    <div className="space-y-4 rounded-lg border border-emerald-200 bg-white p-5" role="status">
-      <div>
-        <p className="text-sm font-medium text-emerald-800">Confirmed · status pending</p>
-        <h2 className="mt-1 text-lg font-semibold">
-          {record.recordId} is ready to be sealed into the next batch
-        </h2>
+    <Card title="Metadata" aside={<StatusBadge status="pending" />}>
+      <div className="space-y-4" role="status">
+        <div>
+          <p className="text-sm font-semibold text-emerald-700">Confirmed</p>
+          <h2 className="mt-1 text-lg font-semibold text-slate-900">
+            <span className="font-mono">{record.recordId}</span> is pending and will be sealed into the next batch
+          </h2>
+        </div>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+          <dt className="text-slate-500">Type</dt>
+          <dd>{docTypeLabel(record.docType)}</dd>
+          <dt className="text-slate-500">Issuer</dt>
+          <dd>{record.issuer}</dd>
+          <dt className="text-slate-500">Date</dt>
+          <dd>{record.date}</dd>
+          <dt className="text-slate-500">Leaf</dt>
+          <dd>
+            <HashChip value={leaf} />
+          </dd>
+        </dl>
+        {canonical && (
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Canonical record that was hashed</p>
+            <pre className="mt-2 overflow-x-auto rounded-md bg-slate-900 p-3 font-mono text-xs break-all whitespace-pre-wrap text-slate-100">{canonical}</pre>
+            <p className="mt-1 text-xs text-slate-500">leaf = SHA-256(0x00 ‖ this text)</p>
+          </div>
+        )}
+        <div className="flex gap-3">
+          <Link to="/" className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+            Upload another
+          </Link>
+          <Link to="/records" className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            View records
+          </Link>
+        </div>
       </div>
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-        <dt className="text-slate-500">Type</dt>
-        <dd>{docTypeLabel(record.docType)}</dd>
-        <dt className="text-slate-500">Issuer</dt>
-        <dd>{record.issuer}</dd>
-        <dt className="text-slate-500">Date</dt>
-        <dd>{record.date}</dd>
-        <dt className="text-slate-500">Leaf</dt>
-        <dd className="flex items-start gap-2">
-          <code className="font-mono text-xs break-all">{leaf}</code>
-          <button type="button" onClick={copyLeaf} className="shrink-0 text-xs font-medium underline">
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </dd>
-      </dl>
-      {canonical && (
-        <details className="text-sm">
-          <summary className="cursor-pointer text-slate-600">What was hashed (canonical record)</summary>
-          <pre className="mt-2 overflow-x-auto rounded bg-slate-50 p-3 font-mono text-xs">{canonical}</pre>
-          <p className="mt-1 text-xs text-slate-500">leaf = SHA-256(0x00 ‖ this exact text)</p>
-        </details>
-      )}
-      <div className="flex gap-4 text-sm font-medium">
-        <Link to="/" className="underline">
-          Upload another
-        </Link>
-        <Link to="/records" className="underline">
-          View records
-        </Link>
-      </div>
-    </div>
+    </Card>
   );
 }
