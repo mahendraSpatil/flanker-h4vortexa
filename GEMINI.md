@@ -105,7 +105,8 @@ Everyone imports these from `@proofchain/core`; nobody re-implements them. A one
 
 **Hashing**
 
-- `fileHash = SHA-256(file bytes)`; for `.txt` the bytes after normalisation (CRLF→LF, strip trailing spaces per line, NFC). `fileNormalization` is `"none"` or `"text-v1"`.
+- `fileHash = SHA-256(bytes)`, where `fileNormalization` (recorded in `proof.scheme`) says which bytes: `"none"` = the raw file; `"text-v1"` = the file after the rule below. `detectNormalization({ fileName, mime })` picks it at upload (`"text-v1"` for a `.txt` name or `text/plain` MIME, else `"none"`); `verify()` applies the value in the proof.
+- **`text-v1`** (`normalizeTextFile`): decode as UTF-8, strictly (invalid UTF-8 → error `INVALID_TEXT_ENCODING`; reject the upload); strip one leading BOM; convert CRLF and lone CR to LF; remove spaces and tabs at the end of every line; remove trailing newlines at end of file; apply Unicode NFC; re-encode as UTF-8.
 - `leaf = SHA-256(0x00 ‖ utf8(canonicalJSON(record)))`
 - `node = SHA-256(0x01 ‖ leftBytes ‖ rightBytes)` (32 raw bytes each)
 - All hashes shown and stored as `0x` + lowercase hex.
@@ -215,10 +216,27 @@ A document is valid **only if the root computed from the uploaded file equals th
 
 ```javascript
 {
+  // CHECK_RESULT[id] of the first check with pass === false; 'VALID' if none failed
   verdict: 'VALID' | 'FORMAT_INVALID' | 'REGISTRY_MISMATCH' | 'DOCUMENT_MODIFIED' | 'METADATA_MODIFIED'
          | 'PROOF_INVALID' | 'BATCH_NOT_PUBLISHED' | 'ROOT_MISMATCH',
-  checks: [ { id: '1', name: 'File hash', pass: false, computed: '0x..', expected: '0x..' }, ... ],
+  // Always these 7 checks, in this order, each { id, name, pass, computed, expected, detail }.
+  // pass: true | false | null (null = skipped). A failed '0' skips every later check; otherwise
+  // '0b' to '4a' all run, and a failed '4a' skips '4b'. detail: one sentence for the results table.
+  checks: [
+    { id: '0',  name: 'Proof format',    computed: null,                     expected: null },
+    { id: '0b', name: 'Registry',        computed: 'eip155:<anchor>',        expected: 'eip155:<pinned>' },
+    { id: '1',  name: 'File hash',       computed: '<hash of the file>',     expected: '<proof.fileHash>' },
+    { id: '2',  name: 'Leaf',            computed: '<leaf from proof data>', expected: '<proof.leaf>' },
+    { id: '3',  name: 'Merkle path',     computed: '<folded root>',          expected: '<proof.root>' },
+    { id: '4a', name: 'Batch published', computed: '<on-chain root>',        expected: null },
+    { id: '4b', name: 'Root',            computed: '<proof.root>',           expected: '<on-chain root>' },
+  ],
+  // Recomputed from the uploaded file itself, for display; null where not computable.
+  // VALID implies computed.root === the on-chain root.
+  computed: { fileHash, leaf, root },
 }
+// verify() never throws on bad file or proof input (that is FORMAT_INVALID);
+// it throws TypeError only when `pinned` is misconfigured (a programming error).
 ```
 
 `verify({ fileBytes, proof, chainBatch, pinned })` never talks to the chain itself; the caller reads `chainBatch = { root, leafCount }` (or `null` if unpublished) and passes it in.

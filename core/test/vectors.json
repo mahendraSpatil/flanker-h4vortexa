@@ -1,0 +1,136 @@
+{
+  "about": "Fixed test vector for @proofchain/core: one batch of 5 fictional documents. Each file is the UTF-8 encoding of `file`; `fileHash` uses `fileNormalization` (`normalizedFile` shows the text-v1 result). core/test/vectors.test.js recomputes every value; any implementation of the scheme must reproduce them exactly.",
+  "v": 1,
+  "scheme": {
+    "hash": "sha256",
+    "leafPrefix": "0x00",
+    "nodePrefix": "0x01",
+    "canonicalization": "json-sorted-v1",
+    "oddNode": "promote"
+  },
+  "batchId": "BATCH-0001",
+  "records": [
+    {
+      "file": "DEGREE CERTIFICATE\nPimpri Institute of Technology\nThis is to certify that Asha Kulkarni has been awarded the degree of\nBachelor of Engineering (Computer Engineering).\nDate: 14 June 2026\n",
+      "fileNormalization": "none",
+      "recordId": "REC-000001",
+      "fileHash": "0xa21268592f483fe30a591a0868d92994bc9df217a18d558c1e7006c1ca3eb94a",
+      "docType": "DEGREE_CERTIFICATE",
+      "issuer": "Pimpri Institute of Technology",
+      "date": "2026-06-14",
+      "canonical": "{\"date\":\"2026-06-14\",\"docType\":\"DEGREE_CERTIFICATE\",\"fileHash\":\"0xa21268592f483fe30a591a0868d92994bc9df217a18d558c1e7006c1ca3eb94a\",\"issuer\":\"Pimpri Institute of Technology\",\"recordId\":\"REC-000001\",\"v\":1}"
+    },
+    {
+      "file": "STATEMENT OF MARKS\nPimpri Institute of Technology\nStudent: Rohan Deshpande\nSemester VI: SGPA 8.42\nDate: 30/05/2026\n",
+      "fileNormalization": "none",
+      "recordId": "REC-000002",
+      "fileHash": "0xe9a2e83ea052b108439b9caec2d2259bd4ce15851ff051b1d0699c394c3dea6b",
+      "docType": "MARKSHEET",
+      "issuer": "Pimpri Institute of Technology",
+      "date": "2026-05-30",
+      "canonical": "{\"date\":\"2026-05-30\",\"docType\":\"MARKSHEET\",\"fileHash\":\"0xe9a2e83ea052b108439b9caec2d2259bd4ce15851ff051b1d0699c394c3dea6b\",\"issuer\":\"Pimpri Institute of Technology\",\"recordId\":\"REC-000002\",\"v\":1}"
+    },
+    {
+      "file": "SALARY SLIP - JULY 2026\nSahyadri Analytics Pvt Ltd\nEmployee: Meera Joshi\nNet salary: Rs 50,000\nDate: 31 July 2026\n",
+      "fileNormalization": "none",
+      "recordId": "REC-000003",
+      "fileHash": "0xb83638a9b66a3cece5207158991bedb32ee2d5c5bebfb0677272643acfad64c4",
+      "docType": "SALARY_SLIP",
+      "issuer": "Sahyadri Analytics Pvt Ltd",
+      "date": "2026-07-31",
+      "canonical": "{\"date\":\"2026-07-31\",\"docType\":\"SALARY_SLIP\",\"fileHash\":\"0xb83638a9b66a3cece5207158991bedb32ee2d5c5bebfb0677272643acfad64c4\",\"issuer\":\"Sahyadri Analytics Pvt Ltd\",\"recordId\":\"REC-000003\",\"v\":1}"
+    },
+    {
+      "file": "OFFER LETTER\nSahyadri Analytics Pvt Ltd\nDear Kabir Shah, we are pleased to offer you the role of Data Analyst.\nDate: 15 August 2026\n",
+      "fileNormalization": "none",
+      "recordId": "REC-000004",
+      "fileHash": "0xff832d7c10e8fa903cd8eaa6b9b3fb14eacd99c8b98a873ac71aa38c780b25bd",
+      "docType": "OFFER_LETTER",
+      "issuer": "Sahyadri Analytics Pvt Ltd",
+      "date": "2026-08-15",
+      "canonical": "{\"date\":\"2026-08-15\",\"docType\":\"OFFER_LETTER\",\"fileHash\":\"0xff832d7c10e8fa903cd8eaa6b9b3fb14eacd99c8b98a873ac71aa38c780b25bd\",\"issuer\":\"Sahyadri Analytics Pvt Ltd\",\"recordId\":\"REC-000004\",\"v\":1}"
+    },
+    {
+      "file": "\ufeffEXPERIENCE LETTER  \r\nDeccan Softworks Limited\t\r\nThis certifies that Neha Patil worked with us from 2023 to 2026.  \r\nSigned: Rene\u0301 Dsouza, HR\r\nDate: 1 September 2026\r\n\r\n",
+      "fileNormalization": "text-v1",
+      "normalizedFile": "EXPERIENCE LETTER\nDeccan Softworks Limited\nThis certifies that Neha Patil worked with us from 2023 to 2026.\nSigned: Ren\u00e9 Dsouza, HR\nDate: 1 September 2026",
+      "recordId": "REC-000005",
+      "fileHash": "0x7f4f616e0a248f47a5a6a45cbec324c454bc02b05939d3c29e607e069e69e656",
+      "docType": "EXPERIENCE_LETTER",
+      "issuer": "Deccan Softworks Limited",
+      "date": "2026-09-01",
+      "canonical": "{\"date\":\"2026-09-01\",\"docType\":\"EXPERIENCE_LETTER\",\"fileHash\":\"0x7f4f616e0a248f47a5a6a45cbec324c454bc02b05939d3c29e607e069e69e656\",\"issuer\":\"Deccan Softworks Limited\",\"recordId\":\"REC-000005\",\"v\":1}"
+    }
+  ],
+  "leaves": [
+    "0xe39225e5682cdb273365dc697e2085183bad4b8ec163526cf7bc1b15f86b0a26",
+    "0x55ee0dace685ab9ac96ffe68a24778e77bf91f7d74cd045d2f9f93af45f3060e",
+    "0x2938937f129572abf3b21b8e2e9dee63981ee215c88bc9d8ce5504f6be9013fb",
+    "0x062d331b8be5777c56d3ed096685ff4cfedd7251d88b5df3cb1f863b7c584423",
+    "0x8389d99f24796281605d74e1088342301b4d0114767d6a81e0dd891874f20c88"
+  ],
+  "levels": [
+    [
+      "0xe39225e5682cdb273365dc697e2085183bad4b8ec163526cf7bc1b15f86b0a26",
+      "0x55ee0dace685ab9ac96ffe68a24778e77bf91f7d74cd045d2f9f93af45f3060e",
+      "0x2938937f129572abf3b21b8e2e9dee63981ee215c88bc9d8ce5504f6be9013fb",
+      "0x062d331b8be5777c56d3ed096685ff4cfedd7251d88b5df3cb1f863b7c584423",
+      "0x8389d99f24796281605d74e1088342301b4d0114767d6a81e0dd891874f20c88"
+    ],
+    [
+      "0x53205d49df07a0e7a6daf159f32b4d03e25cace04688ff74ea6c2941ba13441e",
+      "0x85d365061394da66a93df439b76d09535e25b7d5effbbd96698ff1fcbc35cf61",
+      "0x8389d99f24796281605d74e1088342301b4d0114767d6a81e0dd891874f20c88"
+    ],
+    [
+      "0xadd3b92ff9ea8bbd9e3ed0d9e72a02f6a8e466b3daa953ef6a335d6ad548b3ac",
+      "0x8389d99f24796281605d74e1088342301b4d0114767d6a81e0dd891874f20c88"
+    ],
+    ["0x028dae5d62191266f1663aea346352e38d2f0f41075a96d4cde44bc434914438"]
+  ],
+  "root": "0x028dae5d62191266f1663aea346352e38d2f0f41075a96d4cde44bc434914438",
+  "proof": {
+    "v": 1,
+    "scheme": {
+      "hash": "sha256",
+      "leafPrefix": "0x00",
+      "nodePrefix": "0x01",
+      "canonicalization": "json-sorted-v1",
+      "oddNode": "promote",
+      "fileNormalization": "none"
+    },
+    "recordId": "REC-000003",
+    "metadata": {
+      "docType": "SALARY_SLIP",
+      "issuer": "Sahyadri Analytics Pvt Ltd",
+      "date": "2026-07-31"
+    },
+    "fileHash": "0xb83638a9b66a3cece5207158991bedb32ee2d5c5bebfb0677272643acfad64c4",
+    "leaf": "0x2938937f129572abf3b21b8e2e9dee63981ee215c88bc9d8ce5504f6be9013fb",
+    "batchId": "BATCH-0001",
+    "leafIndex": 2,
+    "leafCount": 5,
+    "siblings": [
+      {
+        "hash": "0x062d331b8be5777c56d3ed096685ff4cfedd7251d88b5df3cb1f863b7c584423",
+        "pos": "right"
+      },
+      {
+        "hash": "0x53205d49df07a0e7a6daf159f32b4d03e25cace04688ff74ea6c2941ba13441e",
+        "pos": "left"
+      },
+      {
+        "hash": "0x8389d99f24796281605d74e1088342301b4d0114767d6a81e0dd891874f20c88",
+        "pos": "right"
+      }
+    ],
+    "root": "0x028dae5d62191266f1663aea346352e38d2f0f41075a96d4cde44bc434914438",
+    "anchor": {
+      "chainId": 31337,
+      "contract": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "txHash": "0x7dbd9c26bf22a861e2b4bfdc4d9a3f1d1f6ee0fb8cfd5320245f7e2b5a6c8031",
+      "blockNumber": 2
+    },
+    "issuedAt": "2026-10-11T12:40:00.000Z"
+  }
+}
