@@ -37,6 +37,23 @@ export const RESULT = Object.freeze({
   ROOT_MISMATCH: 'ROOT_MISMATCH',
 });
 
+/**
+ * Result code for each check id when that check fails. Lookup only: integer-like keys
+ * ('0', '1', ...) enumerate first in JS, so take check order from verify().checks.
+ */
+export const CHECK_RESULT = Object.freeze({
+  0: RESULT.FORMAT_INVALID,
+  '0b': RESULT.REGISTRY_MISMATCH,
+  1: RESULT.DOCUMENT_MODIFIED,
+  2: RESULT.METADATA_MODIFIED,
+  3: RESULT.PROOF_INVALID,
+  '4a': RESULT.BATCH_NOT_PUBLISHED,
+  '4b': RESULT.ROOT_MISMATCH,
+});
+
+/** Longest issuer allowed after normText, in Unicode code points. */
+export const ISSUER_MAX_LENGTH = 120;
+
 /** A 32-byte hash as stored and shown everywhere: "0x" + 64 lowercase hex chars. */
 export const HEX32 = /^0x[0-9a-f]{64}$/;
 

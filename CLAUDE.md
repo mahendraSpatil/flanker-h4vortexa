@@ -105,7 +105,8 @@ Everyone imports these from `@proofchain/core`; nobody re-implements them. A one
 
 **Hashing**
 
-- `fileHash = SHA-256(file bytes)`; for `.txt` the bytes after normalisation (CRLF→LF, strip trailing spaces per line, NFC). `fileNormalization` is `"none"` or `"text-v1"`.
+- `fileHash = SHA-256(bytes)`, where `fileNormalization` (recorded in `proof.scheme`) says which bytes: `"none"` = the raw file; `"text-v1"` = the file after the rule below. `detectNormalization({ fileName, mime })` picks it at upload (`"text-v1"` for a `.txt` name or `text/plain` MIME, else `"none"`); `verify()` applies the value in the proof.
+- **`text-v1`** (`normalizeTextFile`): decode as UTF-8, strictly (invalid UTF-8 → error `INVALID_TEXT_ENCODING`; reject the upload); strip one leading BOM; convert CRLF and lone CR to LF; remove spaces and tabs at the end of every line; remove trailing newlines at end of file; apply Unicode NFC; re-encode as UTF-8.
 - `leaf = SHA-256(0x00 ‖ utf8(canonicalJSON(record)))`
 - `node = SHA-256(0x01 ‖ leftBytes ‖ rightBytes)` (32 raw bytes each)
 - All hashes shown and stored as `0x` + lowercase hex.
@@ -215,10 +216,27 @@ A document is valid **only if the root computed from the uploaded file equals th
 
 ```javascript
 {
+  // CHECK_RESULT[id] of the first check with pass === false; 'VALID' if none failed
   verdict: 'VALID' | 'FORMAT_INVALID' | 'REGISTRY_MISMATCH' | 'DOCUMENT_MODIFIED' | 'METADATA_MODIFIED'
          | 'PROOF_INVALID' | 'BATCH_NOT_PUBLISHED' | 'ROOT_MISMATCH',
-  checks: [ { id: '1', name: 'File hash', pass: false, computed: '0x..', expected: '0x..' }, ... ],
+  // Always these 7 checks, in this order, each { id, name, pass, computed, expected, detail }.
+  // pass: true | false | null (null = skipped). A failed '0' skips every later check; otherwise
+  // '0b' to '4a' all run, and a failed '4a' skips '4b'. detail: one sentence for the results table.
+  checks: [
+    { id: '0',  name: 'Proof format',    computed: null,                     expected: null },
+    { id: '0b', name: 'Registry',        computed: 'eip155:<anchor>',        expected: 'eip155:<pinned>' },
+    { id: '1',  name: 'File hash',       computed: '<hash of the file>',     expected: '<proof.fileHash>' },
+    { id: '2',  name: 'Leaf',            computed: '<leaf from proof data>', expected: '<proof.leaf>' },
+    { id: '3',  name: 'Merkle path',     computed: '<folded root>',          expected: '<proof.root>' },
+    { id: '4a', name: 'Batch published', computed: '<on-chain root>',        expected: null },
+    { id: '4b', name: 'Root',            computed: '<proof.root>',           expected: '<on-chain root>' },
+  ],
+  // Recomputed from the uploaded file itself, for display; null where not computable.
+  // VALID implies computed.root === the on-chain root.
+  computed: { fileHash, leaf, root },
 }
+// verify() never throws on bad file or proof input (that is FORMAT_INVALID);
+// it throws TypeError only when `pinned` is misconfigured (a programming error).
 ```
 
 `verify({ fileBytes, proof, chainBatch, pinned })` never talks to the chain itself; the caller reads `chainBatch = { root, leafCount }` (or `null` if unpublished) and passes it in.
@@ -518,3 +536,33 @@ Repo: https://github.com/mahendraSpatil/flanker-h4vortexa
 - Do not run git commands (no add, commit, push, checkout). Humans commit.
 - Senior-quality code: small functions, clear names, input validation at every boundary, explicit error codes, brief comments only where non-obvious.
 - Work in small steps. After each step, say what to run to check it works.
+
+
+## UI guidelines
+
+Visual reference: the "ProofChain UI Screens" canvas Archit shared (8 screens). Match its layout, states and data shapes; it is the target look, not a pixel spec.
+
+One look across both apps, even though three people and two AI tools build them.
+
+**Direction:** calm, audit-grade, technical. Light theme only. White cards on a slate-50 background, slate text, one accent (indigo-600) for primary actions and links. Emerald-600 and rose-600 mean pass/fail only; amber-500 only for pending/warnings; slate-400 for skipped. IBM Plex Sans for text and IBM Plex Mono for every hash, ID and address (one Google Fonts link in each app's index.html; system fonts as fallback).
+
+**Shared UI kit** (owner: Neel). Master copy in `web/src/components/ui/`, identical copy in `verifier/src/components/ui/`. Build these before pages:
+
+| Component | Purpose |
+| --- | --- |
+| Button | primary / secondary / danger, loading state |
+| Card | white panel with title and optional actions |
+| Badge | fixed colour per status: draft, pending, anchored, OK, MISMATCH, pass, fail, skipped |
+| Hash | middle-truncated monospace hash (0x9b2c…e41a), full value on hover, copy button |
+| FileDrop | drag-and-drop or click, shows name and size, accept list |
+| DataTable | simple table with an empty state |
+| Alert | shows an ApiError's code + message; info/success/error variants |
+| Spinner, EmptyState | loading and nothing-yet states |
+
+**Hero screens (spend polish here):**
+- **Verifier:** verdict banner (VALID or the failure code, plus one plain sentence), then the 7 checks as a vertical list with computed vs expected hashes (highlight the first differing character), then the Merkle path drawn as a chain from the leaf through each sibling up to the on-chain root.
+- **Confirm (registry):** document preview on the left (PDF in an iframe, image as img, text as pre); on the right one field per value showing the AI suggestion, a confidence bar, the quoted evidence line, and an "AI" or "Rules" tag for the extraction path.
+- **Audit:** one row per batch; MISMATCH rows in red listing changed records and files.
+- **Demo:** large labelled buttons per tamper type and restore, last result shown below.
+
+**Rules:** every page handles loading, empty and error states. Never show a green tick without the hashes behind it. Target 1280 px wide; mobile not required. Tailwind only, plus `lucide-react` for icons; no other UI libraries.

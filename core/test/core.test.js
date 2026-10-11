@@ -1,9 +1,11 @@
-// Owner: Archit | Unit tests for @proofchain/core (todos mark functions still to implement)
+// Owner: Archit | Unit tests for @proofchain/core: canonical JSON, hex helpers, locked constants
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CHECK_RESULT,
   DOC_TYPES,
   HEX32,
+  ISSUER_MAX_LENGTH,
   RESULT,
   bytesToHex,
   canonicalJSON,
@@ -83,15 +85,14 @@ test('bytesToHex and hexToBytes round-trip with a lowercase 0x prefix', () => {
 test('locked enums match CLAUDE.md', () => {
   assert.equal(DOC_TYPES.length, 6);
   assert.equal(Object.keys(RESULT).length, 8);
+  assert.equal(ISSUER_MAX_LENGTH, 120);
+  assert.deepEqual(CHECK_RESULT, {
+    0: 'FORMAT_INVALID',
+    '0b': 'REGISTRY_MISMATCH',
+    1: 'DOCUMENT_MODIFIED',
+    2: 'METADATA_MODIFIED',
+    3: 'PROOF_INVALID',
+    '4a': 'BATCH_NOT_PUBLISHED',
+    '4b': 'ROOT_MISMATCH',
+  });
 });
-
-test.todo('normalizeTextFile: CRLF -> LF, trailing spaces stripped, NFC');
-test.todo('fileHash: "none" hashes raw bytes; "text-v1" hashes normalised text');
-test.todo('leafHash = SHA-256(0x00 || canonicalJSON(record))');
-test.todo('nodeHash hashes raw 32-byte children with the 0x01 prefix');
-test.todo('buildTree: 1, 2, 3, 4, 5 and 7 leaves; odd node promoted, not duplicated');
-test.todo('getProof + foldProof: every proof folds back to the root');
-test.todo('expectedPathLength matches getProof length for every leaf');
-test.todo('buildProof produces the proof.json shape from CLAUDE.md');
-test.todo('verify: genuine document is VALID');
-test.todo('verify: one flipped byte fails at the right check for each result code');
