@@ -60,7 +60,8 @@ Two byte-different inputs can represent the same thing (reordered JSON keys, dif
 
 - **Files (PDF, images):** hash the exact file bytes, no normalization. A re-saved PDF is a different file, and rejecting it is correct; normalizing PDF text would let someone swap a signature image undetected.
 - **Plain-text files (`.txt`), rule `text-v1`:** decode the bytes as UTF-8 strictly (a file that is not valid UTF-8 is rejected at upload), strip one leading BOM, convert CRLF and lone CR to LF, remove spaces and tabs at the end of every line, remove trailing newlines at the end of the file, apply Unicode NFC, re-encode as UTF-8, then hash. The registry picks `text-v1` for a `.txt` name or `text/plain` MIME type and records it in `proof.scheme.fileNormalization`, so the verifier applies exactly the same rule. A harmless invisible change (line endings, trailing blanks, a BOM) no longer breaks the hash.
-- **Records:** the canonical record `{v, recordId, fileHash, docType, issuer, date}` is serialized with keys sorted, no whitespace, UTF-8, and normalized values (trimmed, NFC, ISO dates, fixed docType list). We call this `json-sorted-v1`.
+- **Records:** the canonical record `{v, recordId, fileHash, fieldsRoot, docType, issuer, date}` (v2; v1 records have no `fieldsRoot`) is serialized with keys sorted, no whitespace, UTF-8, and normalized values (trimmed, NFC, ISO dates, fixed docType list). We call this `json-sorted-v1`.
+- **Document fields** (net pay, employee name, ...): each value is normalized by its kind before it is hashed, so `30,000`, `₹30000.00` and `Rs 30,000/-` are the same value (see 3.11).
 
 For our flat record of strings and one small integer, `json-sorted-v1` produces the same bytes as the JSON Canonicalization Scheme (RFC 8785): both sort keys by UTF-16 code units and use standard JSON string escaping.
 
@@ -143,7 +144,8 @@ All checks run and are shown; the verdict is the first failure. A document is va
 | 0 | `FORMAT_INVALID` | Proof is malformed | Missing fields, bad hex, unknown scheme, `leafIndex ≥ leafCount`, wrong number of siblings |
 | 0b | `REGISTRY_MISMATCH` | Proof was issued by a different registry | `anchor.chainId` / `anchor.contract` differ from the pinned values |
 | 1 | `DOCUMENT_MODIFIED` | File differs from the registered one | SHA-256 of the file ≠ `proof.fileHash` |
-| 2 | `METADATA_MODIFIED` | Confirmed details were changed | Leaf rebuilt from fileHash + metadata ≠ `proof.leaf` |
+| 2 | `METADATA_MODIFIED` | Confirmed details were changed | Leaf rebuilt from fileHash + fieldsRoot + metadata ≠ `proof.leaf` |
+| 2b | `PROOF_INVALID` | Field values in the proof were changed (v2) | Field tree rebuilt from `proof.fields` ≠ `proof.fieldsRoot`; skipped for v1 proofs |
 | 3 | `PROOF_INVALID` | Path is inconsistent | Folding the siblings does not reach `proof.root` |
 | 4a | `BATCH_NOT_PUBLISHED` | No published root for this batch | Contract returns a zero root |
 | 4b | `ROOT_MISMATCH` | Proof is self-consistent but not anchored | `proof.root` ≠ on-chain root (or leafCount differs) |
@@ -156,16 +158,16 @@ If the path folds to the proof's own claimed root but that root differs from the
 ### 3.8 Tamper scenarios
 
 1. **Modified document:** file hash changes → `DOCUMENT_MODIFIED`.
-2. **Modified metadata in a proof:** rebuilt leaf differs → `METADATA_MODIFIED`.
+2. **Modified metadata in a proof:** rebuilt leaf differs → `METADATA_MODIFIED`. A changed field value in `proof.fields` no longer rebuilds `fieldsRoot` → `PROOF_INVALID` (check 2b); changing `fieldsRoot` as well changes the leaf, so it ends in `METADATA_MODIFIED` or, fully rebuilt, `ROOT_MISMATCH`.
 3. **Corrupted proof:** a sibling hash is altered or its side is wrong → `PROOF_INVALID`.
 4. **Fully forged proof:** document, fileHash, leaf and root all recomputed by the attacker → `ROOT_MISMATCH`.
-5. **Registry database altered:** the **audit job** recomputes every leaf and root from stored records and compares them with the on-chain roots, flagging the batch and the exact records that changed ("stored record no longer matches its published reference"). The independent verifier still rejects the forged document because it trusts only the on-chain root.
+5. **Registry database altered:** the **audit job** recomputes every leaf and root from stored records (and their stored, salted fields) and compares them with the on-chain roots, flagging the batch and the exact records that changed ("stored record no longer matches its published reference"). Editing a field such as net pay in the database is caught the same way. The independent verifier still rejects the forged document because it trusts only the on-chain root.
 
 ### 3.9 The AI component and its boundary
 
 Allowed:
 
-- Extract metadata (issuer, date, document type) from the document text, quoting the line each value came from.
+- Extract metadata (issuer, date, document type) and document fields (net pay, employee name, ...) from the document text, quoting the line each value came from.
 - Suggest a category.
 - Explain a verification failure in plain language.
 
@@ -180,6 +182,39 @@ Constraints:
 It proves integrity relative to a registered reference: this exact file, with these confirmed details, was registered by this registry in this batch. It does not prove issuer legitimacy, truthfulness of contents, or honesty at registration time. Issuer digital signatures (Ed25519 / X.509) could be added as an extension.
 
 **Copies people receive:** a compressed (e.g. WhatsApp) or printed copy has different bytes and will not verify; that is correct behaviour. The receipt QR carries `recordId` and `batchId`, so a person can fetch the original file and proof, verify that cryptographically, and compare it visually with the copy they were given.
+
+### 3.11 Field tree: which field changed (record v2)
+
+A failed file hash says *that* a document changed, not *what*. Record v2 also commits to the document's own fields, so the verifier can say "Net pay: registered ₹30,000, this document shows ₹40,000".
+
+**Field schema** (one per docType, a single source of truth in `core/src/fields.js`; only fields the sample documents really carry):
+
+| docType | Fields, in schema order (kind; * = required) |
+| --- | --- |
+| `SALARY_SLIP` | employeeName* (name), employeeId (id), payPeriod* (month), grossPay (amount), netPay* (amount) |
+| `MARKSHEET` | studentName* (name), seatNumber (id) |
+| `DEGREE_CERTIFICATE` | certificateNo (id) |
+| others | none |
+
+**Normalization by kind** (unreadable input is rejected, never guessed): amount → integer paise as a decimal string (`Rs 30,000/-` → `"3000000"`); name → NFC, trimmed, single spaces, uppercase; id → uppercase, no spaces; month → `YYYY-MM`; date → `YYYY-MM-DD` (numeric dates are day first).
+
+**The tree** (prefixes differ from the batch tree's `0x00` / `0x01`, so no field hash can pass as a record leaf or batch node):
+
+```
+fieldLeaf   = SHA-256(0x02 ‖ json-sorted-v1 {name, salt, value})     salt = 16 random bytes, 32 hex chars
+fieldNode   = SHA-256(0x03 ‖ left ‖ right)                           raw 32-byte children; odd node promoted
+fieldsRoot  = root over the fields in schema order;  no fields -> SHA-256(0x04)
+record (v2) = {v:2, recordId, fileHash, fieldsRoot, docType, issuer, date}
+leaf        = SHA-256(0x00 ‖ json-sorted-v1 record)                  unchanged rule
+```
+
+The salt (one per field, drawn by the server at confirm) stops anyone from guessing a value by hashing candidates, e.g. when a single field is disclosed with `fieldProof` / `verifyFieldProof` (core API only for now).
+
+**proof.json v2** adds `fieldsRoot` (part of the record) and `fields: [{name, value, salt}]` in schema order, between `fileHash` and `leaf`. v1 proofs still verify.
+
+**Check 2b, "Field values match fieldsRoot":** rebuild the field tree from `proof.fields` and compare with `proof.fieldsRoot`; a mismatch is `PROOF_INVALID`, and it is skipped for v1. `fieldsRoot` itself is protected by the leaf and the on-chain root, so changing a field and `fieldsRoot` together still fails (check 2, or check 4b if everything is rebuilt).
+
+**The field diff is an explanation, never a verdict.** Only when a v2 verdict is `DOCUMENT_MODIFIED` (and every other check passed, so the registered values are trustworthy) does the verifier read the dropped file's text (a PDF text layer via pdf.js in the browser, or the `.txt` itself), extract each field with deterministic label rules, and show a table: Field | Registered | In this document | match / changed / unreadable. If every field matches but the bytes differ, it says so ("content match, not proof"). Images and scans get no comparison. The verdict still comes from the file hash alone.
 
 ---
 

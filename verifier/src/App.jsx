@@ -1,6 +1,12 @@
-// Owner: Neel | Independent Verifier app: drop zones, on-chain lookup, 7 checks, Merkle path, and verdict banner
+// Owner: Neel | Independent Verifier app: drop zones, on-chain lookup, 8 checks, field diff, Merkle path, verdict banner
 import { useState, useEffect } from 'react';
-import { verify, nodeHash, BATCH_ID } from '@proofchain/core';
+import {
+  verify,
+  nodeHash,
+  BATCH_ID,
+  displayFieldValue,
+  fieldDefinition,
+} from '@proofchain/core';
 import { getBatch, getBlockNumber } from './chain.js';
 import { PINNED } from './config.js';
 import Button from './components/ui/Button.jsx';
@@ -19,8 +25,10 @@ const EXPLANATIONS = {
     'The uploaded document has been modified. Its cryptographic SHA-256 hash does not match the fileHash recorded in the proof.',
   METADATA_MODIFIED: () =>
     'The metadata in the proof was altered. Rebuilding the leaf with the confirmed details produces a different hash than the leaf in the proof.',
-  PROOF_INVALID: () =>
-    'The Merkle path in the proof is corrupt or forged. Folding the sibling hashes from the leaf does not reach the root claimed in the proof.',
+  PROOF_INVALID: (b, failedId) =>
+    failedId === '2b'
+      ? 'The field values in the proof were altered. They no longer rebuild the fieldsRoot that the record committed to.'
+      : 'The Merkle path in the proof is corrupt or forged. Folding the sibling hashes from the leaf does not reach the root claimed in the proof.',
   BATCH_NOT_PUBLISHED: (b) =>
     `Batch ${b || ''} has not been published or sealed on the blockchain contract. No published root exists.`,
   ROOT_MISMATCH: (b) =>
@@ -93,6 +101,13 @@ function splitAtFirstDiff(value, other) {
   return { before: value.slice(0, i), diff: value.slice(i, i + 1), after: value.slice(i + 1) };
 }
 
+/** A normalised field value as people read it ("5000000" -> "₹50,000"); "—" when absent. */
+function fieldText(name, value) {
+  if (value === null || value === undefined) return '—';
+  const kind = fieldDefinition(name)?.kind;
+  return kind ? displayFieldValue(kind, value) : value;
+}
+
 /** `value` with its first character that differs from `other` highlighted in rose. */
 function DiffText({ value, other }) {
   const { before, diff, after } = splitAtFirstDiff(value, other);
@@ -102,6 +117,106 @@ function DiffText({ value, other }) {
       {diff && <span className="bg-rose-200 text-rose-900 rounded-xs px-px">{diff}</span>}
       {after}
     </>
+  );
+}
+
+/**
+ * Values the record committed to (check 2b passed). They are registered values only when every
+ * other check passed too, or when only the file hash failed; otherwise they are just claims.
+ */
+function RegisteredDetails({ result }) {
+  const untrusted = result.checks.find((c) => c.id !== '1' && c.pass !== true);
+  return (
+    <Card title="Registered details" subtitle="Field values committed to by the record's fieldsRoot">
+      {untrusted && (
+        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Not confirmed: check {untrusted.id} ({untrusted.name}) did not pass, so these are only the
+          values this proof.json claims.
+        </p>
+      )}
+      {result.registeredFields.length === 0 ? (
+        <p className="text-sm text-slate-500">No document fields are registered for this type.</p>
+      ) : (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+          {result.registeredFields.map((field) => (
+            <div key={field.name} className="contents">
+              <dt className="text-slate-500 font-medium">{field.label}</dt>
+              <dd className="text-slate-900 font-semibold">
+                {field.display}
+                {field.display !== field.value && (
+                  <span className="ml-2 font-mono text-xs font-normal text-slate-400">
+                    {field.value}
+                  </span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </Card>
+  );
+}
+
+const STATUS_STYLES = {
+  match: { row: '', badge: 'bg-emerald-100 text-emerald-800', label: 'match' },
+  changed: { row: 'bg-rose-50', badge: 'bg-rose-100 text-rose-800', label: 'changed' },
+  unreadable: { row: 'bg-slate-50 text-slate-500', badge: 'bg-slate-200 text-slate-600', label: 'unreadable' },
+};
+
+/** DOCUMENT_MODIFIED explained field by field. Never a verdict: the file hash decides. */
+function WhatChanged({ fieldDiff }) {
+  return (
+    <Card
+      title="What changed"
+      subtitle="Registered field values compared with the text of this document"
+      className="mb-8"
+    >
+      {fieldDiff.available ? (
+        <div className="-mx-5 -mt-5 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-5 py-2.5 font-semibold">Field</th>
+                <th className="px-5 py-2.5 font-semibold">Registered</th>
+                <th className="px-5 py-2.5 font-semibold">In this document</th>
+                <th className="px-5 py-2.5 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {fieldDiff.fields.map((row) => {
+                const style = STATUS_STYLES[row.status];
+                return (
+                  <tr key={row.name} className={style.row}>
+                    <td className="px-5 py-2.5 font-medium text-slate-900">{row.label}</td>
+                    <td className="px-5 py-2.5">{fieldText(row.name, row.registered)}</td>
+                    <td
+                      className={`px-5 py-2.5 ${row.status === 'changed' ? 'font-semibold text-rose-800' : ''}`}
+                    >
+                      {row.status === 'unreadable' ? 'could not read' : fieldText(row.name, row.found)}
+                    </td>
+                    <td className="px-5 py-2.5">
+                      <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${style.badge}`}>
+                        {style.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {fieldDiff.note && (
+            <p className="mx-5 mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              {fieldDiff.note}
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-600">No field comparison: {fieldDiff.reason}.</p>
+      )}
+      <p className="mt-3 text-xs text-slate-500">
+        Explanation only — the verdict comes from the file hash.
+      </p>
+    </Card>
   );
 }
 
@@ -157,15 +272,23 @@ export default function App() {
         }
       }
 
-      // 4. Run pure cryptographic verification via @proofchain/core
+      // 4. Text of a PDF's text layer, only to explain a DOCUMENT_MODIFIED field by field (v2
+      // proofs). Read in this browser; it never changes the verdict. A .txt is read by core itself.
+      // pdf.js is loaded on demand: it is most of the bundle and only v2 proofs need it.
+      const fileText = Array.isArray(proof?.fields)
+        ? await import('./pdfText.js').then(({ readPdfText }) => readPdfText(fileBytes))
+        : null;
+
+      // 5. Run pure cryptographic verification via @proofchain/core
       const result = verify({
         fileBytes,
         proof,
         chainBatch,
         pinned: PINNED,
+        fileText,
       });
 
-      // 5. Path steps and proof details only for a well-formed proof (check 0 passed); a
+      // 6. Path steps and proof details only for a well-formed proof (check 0 passed); a
       // malformed proof's fields are never rendered, so it always ends as FORMAT_INVALID
       const formatOk = result.checks.find((c) => c.id === '0')?.pass === true;
       const pathSteps = formatOk
@@ -199,11 +322,11 @@ export default function App() {
   const result = verificationResult;
   const isPassed = result?.verdict === 'VALID';
   const passedCount = result?.checks?.filter((c) => c.pass === true).length || 0;
-  const totalChecks = result?.checks?.length || 7;
+  const totalChecks = result?.checks?.length || 8;
   const failedCheck = result?.checks?.find((c) => c.pass === false);
 
   const explanation = result?.verdict
-    ? (EXPLANATIONS[result.verdict] || (() => ''))(result.proof?.batchId)
+    ? (EXPLANATIONS[result.verdict] || (() => ''))(result.proof?.batchId, failedCheck?.id)
     : '';
 
   return (
@@ -398,10 +521,13 @@ export default function App() {
           </section>
         )}
 
+        {/* What changed: field-by-field explanation of a DOCUMENT_MODIFIED (v2 proofs) */}
+        {result?.fieldDiff && <WhatChanged fieldDiff={result.fieldDiff} />}
+
         {/* Results Details Grid */}
         {result && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left Column: 7 Checks */}
+            {/* Left Column: the checks */}
             <div className="lg:col-span-7">
               <Card
                 title="Cryptographic Checks"
@@ -534,8 +660,10 @@ export default function App() {
               </Card>
             </div>
 
-            {/* Right Column: Merkle Path & Proof Details */}
+            {/* Right Column: Registered Details, Merkle Path & Proof Details */}
             <div className="lg:col-span-5 space-y-6">
+              {result.registeredFields && <RegisteredDetails result={result} />}
+
               {/* Merkle Path Visualization */}
               <Card title="Merkle Path" subtitle="Folded from the file upward to the root">
                 <div className="space-y-2 text-xs">
@@ -635,6 +763,19 @@ export default function App() {
                       {result.computed?.leaf || result.proof?.leaf || '—'}
                     </div>
                   </div>
+
+                  {/* fieldsRoot: the record's commitment to its field values (v2) */}
+                  {result.proof?.fieldsRoot && (
+                    <div className="rounded-lg p-2.5 bg-slate-50 border border-slate-200">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        fieldsRoot = root of {result.proof.fields.length} salted field leaves
+                        (0x02 ‖ name, salt, value)
+                      </div>
+                      <div className="font-mono text-xs mt-0.5 break-all text-slate-900">
+                        {result.proof.fieldsRoot}
+                      </div>
+                    </div>
+                  )}
 
                   {/* File Hash */}
                   <div className="rounded-lg p-2.5 bg-slate-50 border border-slate-200">

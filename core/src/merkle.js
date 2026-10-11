@@ -1,5 +1,6 @@
 // Owner: Archit | Merkle tree over record leaves: build, prove, fold (odd node promoted, never duplicated)
 import { nodeHash } from './hash.js';
+import { buildLevels, foldPath } from './tree.js';
 
 const HASH_HEX_ANY_CASE = /^0x[0-9a-fA-F]{64}$/;
 
@@ -23,8 +24,7 @@ export function buildTree(leafHexes) {
     if (!isHashHex(leaf)) throw new TypeError(`buildTree: leaf ${i} is not 0x + 64 hex characters`);
     return leaf.toLowerCase();
   });
-  const levels = [leaves];
-  while (levels[levels.length - 1].length > 1) levels.push(parentLevel(levels[levels.length - 1]));
+  const levels = buildLevels(leaves, nodeHash);
   return { root: levels[levels.length - 1][0], levels };
 }
 
@@ -64,11 +64,7 @@ export function getProof(levels, leafIndex) {
 export function foldProof(leafHex, siblings) {
   if (!isHashHex(leafHex)) throw new TypeError('foldProof: leaf must be 0x + 64 hex characters');
   if (!Array.isArray(siblings)) throw new TypeError('foldProof: siblings must be an array');
-  return siblings.reduce((hash, sibling, i) => {
-    if (sibling?.pos === 'left') return nodeHash(sibling.hash, hash);
-    if (sibling?.pos === 'right') return nodeHash(hash, sibling.hash);
-    throw new TypeError(`foldProof: siblings[${i}].pos must be "left" or "right"`);
-  }, leafHex.toLowerCase());
+  return foldPath(leafHex.toLowerCase(), siblings, nodeHash, 'foldProof');
 }
 
 /**
@@ -105,14 +101,6 @@ export function expectedPositions(leafIndex, leafCount) {
  */
 export function expectedPathLength(leafIndex, leafCount) {
   return expectedPositions(leafIndex, leafCount).length;
-}
-
-function parentLevel(level) {
-  const parents = [];
-  for (let i = 0; i < level.length; i += 2) {
-    parents.push(i + 1 < level.length ? nodeHash(level[i], level[i + 1]) : level[i]);
-  }
-  return parents;
 }
 
 // Each level must be half the one below (rounded up), and only the last may be a single node

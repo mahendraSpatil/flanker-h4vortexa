@@ -6,16 +6,27 @@ import {
   RESULT,
   buildProof,
   buildTree,
+  fieldSchema,
   fileHash,
   getProof,
   leafHash,
   verify,
 } from '../src/index.js';
-import { ANCHOR, ISSUED_AT, PINNED, VECTORS, makeBatch, utf8 } from './fixtures.js';
+import {
+  ANCHOR,
+  ISSUED_AT,
+  PINNED,
+  V2_BATCH_ID,
+  VECTORS,
+  makeBatch,
+  makeV2Batch,
+  utf8,
+} from './fixtures.js';
 
-const IDS = ['0', '0b', '1', '2', '3', '4a', '4b'];
+const IDS = ['0', '0b', '1', '2', '2b', '3', '4a', '4b'];
 const CHECK_KEYS = ['id', 'name', 'pass', 'computed', 'expected', 'detail'];
-const ALL_PASS = Object.fromEntries(IDS.map((id) => [id, true]));
+// These are v1 proofs: check 2b (field values) is always skipped for them
+const ALL_PASS = Object.fromEntries(IDS.map((id) => [id, id === '2b' ? null : true]));
 const ALL_SKIPPED_AFTER_0 = Object.fromEntries(IDS.map((id) => [id, id === '0' ? false : null]));
 const ZERO_ROOT = '0x' + '0'.repeat(64);
 const OTHER_CONTRACT = '0x' + 'ab'.repeat(20);
@@ -36,7 +47,12 @@ function argsFor(index = SLIP) {
 /** verify() plus the invariants every result must satisfy. */
 function check(args) {
   const result = verify(args);
-  assert.deepEqual(Object.keys(result), ['verdict', 'checks', 'computed']);
+  // Only a v2 proof can add registeredFields / fieldDiff (fuzzed proofs may be v2)
+  const keys = Object.keys(result);
+  assert.deepEqual(keys.slice(0, 3), ['verdict', 'checks', 'computed']);
+  const extra = keys.slice(3);
+  if (args.proof?.v !== 2) assert.deepEqual(extra, []);
+  else assert.ok(extra.every((key) => ['registeredFields', 'fieldDiff'].includes(key)));
   assert.deepEqual(
     result.checks.map((c) => c.id),
     IDS,
@@ -81,6 +97,7 @@ test('genuine documents are VALID with every check passing', () => {
       ['0b', registry, registry],
       ['1', proof.fileHash, proof.fileHash],
       ['2', proof.leaf, proof.leaf],
+      ['2b', null, null],
       ['3', proof.root, proof.root],
       ['4a', chainBatch.root, null],
       ['4b', proof.root, chainBatch.root],
@@ -380,21 +397,63 @@ function pathsOf(value, path = []) {
   return [path, ...children];
 }
 
-test('fuzz: 1500 random proof.json mutations never throw and never pass with altered content', () => {
+// A v2 batch over random field sets: random docTypes, optional fields present at random,
+// random normalised values and salts
+function randomV2Batch(random) {
+  const int = (n) => Math.floor(random() * n);
+  const hex = (n) => Array.from({ length: n }, () => '0123456789abcdef'[int(16)]).join('');
+  const word = () =>
+    Array.from({ length: 1 + int(8) }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[int(26)]);
+  const VALUES = {
+    name: () => `${word().join('')} ${word().join('')}`,
+    id: () => `${word().join('')}-${int(10000)}`,
+    month: () => `${2000 + int(30)}-${String(1 + int(12)).padStart(2, '0')}`,
+    amount: () => String(int(1e9)),
+  };
+  const docTypes = ['SALARY_SLIP', 'MARKSHEET', 'DEGREE_CERTIFICATE', 'OFFER_LETTER'];
+  const documents = Array.from({ length: 1 + int(5) }, (_, i) => {
+    const docType = docTypes[int(docTypes.length)];
+    const fields = fieldSchema(docType)
+      .filter((def) => def.required || random() < 0.5)
+      .map((def) => ({ name: def.name, value: VALUES[def.kind](), salt: hex(32) }));
+    const text = `document ${i} ${hex(8)}`;
+    return { docType, issuer: 'Fuzz Institute of Testing', date: '2026-01-15', text, fields };
+  });
+  return makeV2Batch(documents);
+}
+
+test('fuzz: 1500 random proof.json mutations (v1, and v2 over random field sets) never throw and never pass with altered content', () => {
   const random = mulberry32(Number(process.env.FUZZ_SEED ?? 20261011)); // FUZZ_SEED replays/explores
   const pick = (items) => items[Math.floor(random() * items.length)];
   const junk = [undefined, null, 0, 1, 2, 3, 4, 5, -1, 1.5, 2 ** 32, '', 'x', '0x', 'left', true];
   junk.push(ZERO_ROOT, '0x' + 'F'.repeat(64), [], {}, { hash: ZERO_ROOT, pos: 'left' });
+  junk.push({ name: 'netPay', value: '1', salt: '0'.repeat(32) }, '3000000', 'MEERA JOSHI');
   // Everything except the display-only anchor and issuedAt; VALID requires all of it unchanged
-  const SECURED = ['v', 'scheme', 'recordId', 'metadata', 'fileHash', 'leaf', 'batchId'];
-  SECURED.push('leafIndex', 'leafCount', 'siblings', 'root');
-  // The chain as the verifier app sees it: it reads the batch that proof.batchId names
-  const published = new Map([
-    [VECTORS.batchId, { root: VECTORS.root, leafCount: VECTORS.leaves.length }],
-  ]);
+  const SECURED = ['v', 'scheme', 'recordId', 'metadata', 'fileHash', 'fieldsRoot', 'fields'];
+  SECURED.push('leaf', 'batchId', 'leafIndex', 'leafCount', 'siblings', 'root');
+  // Text a document might show, so fieldDiff runs on mutated proofs too
+  const texts = [undefined, null, '', 'Net Pay 5,000\nEmployee name X Y', 'Student name A B'];
 
   for (let round = 0; round < 1500; round++) {
-    const args = argsFor(pick([SLIP, TXT, 0]));
+    // The chain as the verifier app sees it: it reads the batch that proof.batchId names
+    const published = new Map([
+      [VECTORS.batchId, { root: VECTORS.root, leafCount: VECTORS.leaves.length }],
+    ]);
+    let args;
+    if (random() < 0.5) {
+      args = argsFor(pick([SLIP, TXT, 0]));
+    } else {
+      const batch = randomV2Batch(random);
+      const index = Math.floor(random() * batch.proofs.length);
+      published.set(V2_BATCH_ID, batch.chainBatch);
+      args = {
+        fileBytes: random() < 0.7 ? batch.files[index] : utf8(`forged ${round}`),
+        proof: batch.proofs[index],
+        chainBatch: null,
+        pinned: PINNED,
+        fileText: pick(texts),
+      };
+    }
     const original = structuredClone(args.proof);
     for (let edits = 1 + Math.floor(random() * 3); edits > 0; edits--) {
       const path = pick(pathsOf(args.proof).filter((p) => p.length > 0));

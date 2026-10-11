@@ -3,9 +3,15 @@
 // Dependencies are injected so this runs in tests without server/.env, Express or the real DB file.
 // routes/documents.js wires the production ones.
 import { AppError } from '../lib/errors.js';
-import { RECORD_ID } from '@proofchain/core';
+import { RECORD_ID, describeFields } from '@proofchain/core';
 import { emptySuggestions, localIsoDate } from './fallbackMetadata.js';
-import { buildLeaf, hashUpload, validateConfirmFields, validateUpload } from './documentRules.js';
+import {
+  buildLeaf,
+  hashUpload,
+  saltFields,
+  validateConfirmFields,
+  validateUpload,
+} from './documentRules.js';
 
 const MAX_RECORD_NUMBER = 999_999;
 
@@ -17,8 +23,9 @@ const MAX_RECORD_NUMBER = 999_999;
  * @param {(text: string) => Promise<{ suggestions: object, extractionPath: string, diagnostics?: object }>} deps.suggestMetadata
  * @param {(entry: object) => void} deps.logAction see lib/auditLog.js
  * @param {() => Date} [deps.now]
+ * @param {() => string} [deps.salt] one field salt (32 hex chars); defaults to crypto.randomBytes(16)
  */
-export function createDocumentRegistry({ db, storage, extractText, suggestMetadata, logAction, now = () => new Date() }) {
+export function createDocumentRegistry({ db, storage, extractText, suggestMetadata, logAction, now = () => new Date(), salt }) {
   const sql = {
     byHash: db.prepare('SELECT record_id, batch_id, status FROM records WHERE file_hash = ?'),
     byId: db.prepare('SELECT * FROM records WHERE record_id = ?'),
@@ -34,6 +41,9 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
     confirm: db.prepare(
       "UPDATE records SET doc_type = ?, issuer = ?, doc_date = ?, leaf = ?, status = 'pending', confirmed_by = ?, confirmed_at = ? WHERE record_id = ? AND status IN ('draft', 'pending')",
     ),
+    deleteFields: db.prepare('DELETE FROM record_fields WHERE record_id = ?'),
+    insertField: db.prepare('INSERT INTO record_fields (record_id, idx, name, value, salt) VALUES (?, ?, ?, ?, ?)'),
+    fieldsOf: db.prepare('SELECT name, value FROM record_fields WHERE record_id = ? ORDER BY idx'),
   };
 
   /** Audit logging must never turn a successful action into an error response. */
@@ -170,8 +180,10 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
   // ---- confirm ----------------------------------------------------------------------------------
 
   /**
-   * POST /api/documents/:recordId/confirm. Validates, builds the canonical record and its leaf, -> pending.
+   * POST /api/documents/:recordId/confirm. Validates, normalises and salts the document fields,
+   * builds the v2 canonical record (with fieldsRoot) and its leaf, -> pending.
    * A pending record may be re-confirmed (fixing a typo) until it is sealed; anchored records are final.
+   * Every confirm draws fresh salts.
    * @returns {{ record: object, leaf: string, status: 'pending', canonical: string }}
    */
   function confirm(recordId, body, actor) {
@@ -185,23 +197,16 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
       throw err;
     }
 
-    const { record, errors } = validateConfirmFields(
+    const { record, fields, errors } = validateConfirmFields(
       { recordId, fileHash: row.file_hash },
       body,
       { today: localIsoDate(now()) },
     );
     if (!record) throw validationError(actor, recordId, errors);
 
-    const { leaf, canonical } = buildLeaf(record);
-    const { changes } = sql.confirm.run(
-      record.docType,
-      record.issuer,
-      record.date,
-      leaf,
-      actor ?? null,
-      now().toISOString(),
-      recordId,
-    );
+    const salted = saltFields(fields, salt);
+    const { leaf, canonical, fieldsRoot } = buildLeaf(record, salted);
+    const changes = saveConfirmed(record, salted, leaf, actor);
     if (changes !== 1) {
       // Sealed between our read and our write.
       const err = new AppError('ALREADY_ANCHORED', 409, `${recordId} was sealed while you were confirming it`, { recordId });
@@ -217,12 +222,44 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
       outcome: 'OK',
       detail: {
         leaf,
+        fieldsRoot,
+        fields: fields.map((f) => f.name),
         reconfirmed: row.status === 'pending',
-        editedFields: suggested ? ['docType', 'issuer', 'date'].filter((f) => suggested[f] !== record[f]) : null,
+        editedFields: suggested ? editedFields(suggested, record, fields) : null,
       },
     });
 
-    return { record: toRecord(sql.byId.get(recordId)), leaf, status: 'pending', canonical };
+    return { record: recordOf(sql.byId.get(recordId)), leaf, status: 'pending', canonical };
+  }
+
+  /** The record row and its salted fields, in one transaction. Returns 0 if it was sealed meanwhile. */
+  function saveConfirmed(record, salted, leaf, actor) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const { changes } = sql.confirm.run(
+        record.docType,
+        record.issuer,
+        record.date,
+        leaf,
+        actor ?? null,
+        now().toISOString(),
+        record.recordId,
+      );
+      if (changes === 1) {
+        sql.deleteFields.run(record.recordId);
+        salted.forEach((f, idx) => sql.insertField.run(record.recordId, idx, f.name, f.value, f.salt));
+      }
+      db.exec('COMMIT');
+      return changes;
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
+  /** API record with its confirmed fields (values only: salts stay in the DB and proof.json). */
+  function recordOf(row) {
+    return toRecord(row, sql.fieldsOf.all(row.record_id));
   }
 
   function validationError(actor, recordId, fields) {
@@ -250,7 +287,7 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
       add("issuer LIKE ? ESCAPE '\\'", `%${filters.issuer.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
     }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    return db.prepare(`SELECT * FROM records ${clause} ORDER BY record_id`).all(...params).map(toRecord);
+    return db.prepare(`SELECT * FROM records ${clause} ORDER BY record_id`).all(...params).map(recordOf);
   }
 
   /** GET /api/documents/:recordId/file */
@@ -269,6 +306,15 @@ export function createDocumentRegistry({ db, storage, extractText, suggestMetada
   return { upload, confirm, list, getFile };
 }
 
+/** Names of the confirmed values that differ from what the AI or rules suggested. */
+function editedFields(suggested, record, fields) {
+  const metadata = ['docType', 'issuer', 'date'].filter((f) => suggested[f] !== record[f]);
+  const confirmed = new Map(fields.map((f) => [f.name, f.value]));
+  const names = new Set([...confirmed.keys(), ...Object.keys(suggested.fields ?? {})]);
+  const changed = [...names].filter((name) => suggested.fields?.[name]?.value !== confirmed.get(name));
+  return [...metadata, ...changed.map((name) => `fields.${name}`)];
+}
+
 function parseStoredSuggestions(json) {
   if (!json) return null;
   try {
@@ -281,8 +327,11 @@ function parseStoredSuggestions(json) {
 /**
  * API shape of one record (camelCase). Confirmed fields are null while draft.
  * `suggestions` and `extractionPath` are what the AI or fallback proposed, kept for the confirm screen.
+ * `fields` are the confirmed document fields [{ name, label, value, display }] ([] while draft).
+ * @param {object} row records row
+ * @param {Array<{ name: string, value: string }>} [fields] its record_fields rows, in idx order
  */
-export function toRecord(row) {
+export function toRecord(row, fields = []) {
   const stored = parseStoredSuggestions(row.ai_suggestions);
   return {
     recordId: row.record_id,
@@ -293,6 +342,7 @@ export function toRecord(row) {
     docType: row.doc_type,
     issuer: row.issuer,
     date: row.doc_date,
+    fields: describeFields(fields),
     leaf: row.leaf,
     batchId: row.batch_id,
     leafIndex: row.leaf_index,

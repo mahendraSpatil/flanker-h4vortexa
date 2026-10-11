@@ -11,8 +11,8 @@ import explainRouter from './routes/explain.js';
 import healthRouter from './routes/health.js';
 import proofsRouter from './routes/proofs.js';
 
-// Only the registry app may call the API from a browser. The verifier (5174) must never reach it.
-const REGISTRY_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+// Only the registry app may call the API from a browser. The verifier (5274) must never reach it.
+const REGISTRY_ORIGINS = ['http://localhost:5273', 'http://127.0.0.1:5273'];
 
 export function createApp() {
   const app = express();

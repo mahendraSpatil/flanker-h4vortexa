@@ -60,9 +60,11 @@ router.post('/api/documents', receiveFile, async (req, res) => {
 });
 
 /**
- * POST /api/documents/:recordId/confirm  body { docType, issuer, date }
- * -> { record, leaf, status: "pending", canonical }
- * -> 400 VALIDATION with details { fields: { docType?, issuer?, date? } }
+ * POST /api/documents/:recordId/confirm  body { docType, issuer, date, fields?: { [name]: value } }
+ *   fields: the docType's document fields as typed (amounts in rupees, e.g. { netPay: "50,000" });
+ *   the server normalises them, salts each one and commits to them through fieldsRoot (record v2)
+ * -> { record, leaf, status: "pending", canonical }  (canonical = the v2 record text that was hashed)
+ * -> 400 VALIDATION with details { fields: { docType?, issuer?, date?, "fields.<name>"? } }
  * -> 404 NOT_FOUND, 409 ALREADY_ANCHORED
  */
 router.post('/api/documents/:recordId/confirm', (req, res) => {

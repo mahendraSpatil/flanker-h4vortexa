@@ -33,11 +33,41 @@ function splitPoint(n) {
  * Root by recursive split (left = largest power of two below n). A different algorithm from
  * buildTree's bottom-up pairing, but it must produce the same tree as "promote the odd node".
  */
-export function refRoot(leaves) {
+export function refRoot(leaves, node = refNode) {
   if (leaves.length === 1) return leaves[0];
   const k = splitPoint(leaves.length);
-  return refNode(refRoot(leaves.slice(0, k)), refRoot(leaves.slice(k)));
+  return node(refRoot(leaves.slice(0, k), node), refRoot(leaves.slice(k), node));
 }
+
+// ---- v2: field tree and the record that commits to it ------------------------------------------
+
+/** Field leaf JSON written out by hand (test values are plain ASCII, so no JSON escaping). */
+export const refFieldCanonical = ({ name, salt, value }) =>
+  `{"name":"${name}","salt":"${salt}","value":"${value}"}`;
+
+export const refFieldLeaf = (field) =>
+  sha256(Buffer.from([0x02]), Buffer.from(refFieldCanonical(field)));
+
+export const refFieldNode = (left, right) => sha256(Buffer.from([0x03]), raw(left), raw(right));
+
+export const REF_EMPTY_FIELDS_ROOT = sha256(Buffer.from([0x04]));
+
+/** fieldsRoot by recursive split over salted field leaves; SHA-256(0x04) for no fields. */
+export function refFieldsRoot(fields) {
+  if (fields.length === 0) return REF_EMPTY_FIELDS_ROOT;
+  return refRoot(fields.map(refFieldLeaf), refFieldNode);
+}
+
+/** v2 canonical record written out by hand: fieldsRoot sorts between docType and fileHash. */
+export function refCanonicalV2({ recordId, fileHash, fieldsRoot, docType, issuer, date }) {
+  return (
+    `{"date":"${date}","docType":"${docType}","fieldsRoot":"${fieldsRoot}",` +
+    `"fileHash":"${fileHash}","issuer":"${issuer}","recordId":"${recordId}","v":2}`
+  );
+}
+
+export const refLeafV2 = (record) =>
+  sha256(Buffer.from([0x00]), Buffer.from(refCanonicalV2(record)));
 
 /** Sibling path for leaves[index], bottom to top, with each sibling's side. */
 export function refPath(leaves, index) {

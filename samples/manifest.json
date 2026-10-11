@@ -4,78 +4,126 @@
       "file": "degree-01-kestrel.pdf",
       "docType": "DEGREE_CERTIFICATE",
       "issuer": "Kestrel Institute of Technology",
-      "date": "2026-06-14"
+      "date": "2026-06-14",
+      "fields": {
+        "certificateNo": "KIT/DEG/2026/0412"
+      }
     },
     {
       "file": "degree-02-meridian.pdf",
       "docType": "DEGREE_CERTIFICATE",
       "issuer": "Meridian State University",
-      "date": "2026-06-20"
+      "date": "2026-06-20",
+      "fields": {
+        "certificateNo": "MSU/PG/2026/1187"
+      }
     },
     {
       "file": "degree-03-kestrel.pdf",
       "docType": "DEGREE_CERTIFICATE",
       "issuer": "Kestrel Institute of Technology",
-      "date": "2026-06-18"
+      "date": "2026-06-18",
+      "fields": {
+        "certificateNo": "KIT/DEG/2026/0587"
+      }
     },
     {
       "file": "marksheet-01-kestrel.pdf",
       "docType": "MARKSHEET",
       "issuer": "Kestrel Institute of Technology",
-      "date": "2026-07-02"
+      "date": "2026-07-02",
+      "fields": {
+        "studentName": "Aarav Deshmukh",
+        "seatNumber": "KIT-CE-22-0412"
+      }
     },
     {
       "file": "marksheet-02-meridian.pdf",
       "docType": "MARKSHEET",
       "issuer": "Meridian State University",
-      "date": "2026-07-05"
+      "date": "2026-07-05",
+      "fields": {
+        "studentName": "Ishita Nambiar",
+        "seatNumber": "MSU-DS-24-0187"
+      }
     },
     {
       "file": "marksheet-03-meridian.pdf",
       "docType": "MARKSHEET",
       "issuer": "Meridian State University",
-      "date": "2026-07-06"
+      "date": "2026-07-06",
+      "fields": {
+        "studentName": "Kabir Shaikh",
+        "seatNumber": "MSU-DS-24-0203"
+      }
     },
     {
       "file": "salary-01-brightwell.pdf",
       "docType": "SALARY_SLIP",
       "issuer": "Brightwell Analytics Pvt Ltd",
-      "date": "2026-03-31"
+      "date": "2026-03-31",
+      "fields": {
+        "employeeName": "Sameer Patil",
+        "employeeId": "BW-1042",
+        "payPeriod": "March 2026",
+        "grossPay": "56,500",
+        "netPay": "50,000"
+      }
     },
     {
       "file": "salary-02-brightwell.pdf",
       "docType": "SALARY_SLIP",
       "issuer": "Brightwell Analytics Pvt Ltd",
-      "date": "2026-04-30"
+      "date": "2026-04-30",
+      "fields": {
+        "employeeName": "Meera Joshi",
+        "employeeId": "BW-1077",
+        "payPeriod": "April 2026",
+        "grossPay": "48,000",
+        "netPay": "43,500"
+      }
     },
     {
       "file": "salary-03-brightwell.pdf",
       "docType": "SALARY_SLIP",
       "issuer": "Brightwell Analytics Pvt Ltd",
-      "date": "2026-05-31"
+      "date": "2026-05-31",
+      "fields": {
+        "employeeName": "Vikram Rane",
+        "employeeId": "BW-1013",
+        "payPeriod": "May 2026",
+        "grossPay": "72,000",
+        "netPay": "62,000"
+      }
     },
     {
       "file": "offer-01-brightwell.pdf",
       "docType": "OFFER_LETTER",
       "issuer": "Brightwell Analytics Pvt Ltd",
-      "date": "2026-08-12"
+      "date": "2026-08-12",
+      "fields": {}
     },
     {
       "file": "experience-01-brightwell-scan.png",
       "docType": "EXPERIENCE_LETTER",
       "issuer": "Brightwell Analytics Pvt Ltd",
-      "date": "2026-07-15"
+      "date": "2026-07-15",
+      "fields": {}
     },
     {
       "file": "degree-04-meridian-provisional.txt",
       "docType": "DEGREE_CERTIFICATE",
       "issuer": "Meridian State University",
-      "date": "2026-06-20"
+      "date": "2026-06-20",
+      "fields": {
+        "certificateNo": "MSU/UG/2026/0932"
+      }
     }
   ],
   "tampered": {
     "file": "tampered/salary-01-brightwell-tampered.pdf",
     "basedOn": "salary-01-brightwell.pdf",
-    "change": "Net Pay 50,000 -> 80,000"
+    "change": "Net Pay 50,000 -> 80,000",
+    "field": "netPay"
   }
 }

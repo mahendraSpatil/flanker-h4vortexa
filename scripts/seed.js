@@ -47,6 +47,8 @@ async function uploadFile(fileName) {
   });
 }
 
+// fields: the document's values as a person types them (manifest.json), e.g. { netPay: "50,000" };
+// the server normalises and salts them into the record's fieldsRoot
 async function confirmRecord(recordId, metadata) {
   return request(`/documents/${encodeURIComponent(recordId)}/confirm`, {
     method: 'POST',
@@ -55,6 +57,7 @@ async function confirmRecord(recordId, metadata) {
       docType: metadata.docType,
       issuer: metadata.issuer,
       date: metadata.date,
+      fields: metadata.fields ?? {},
     }),
   });
 }
@@ -91,6 +94,7 @@ async function main() {
   // Batch 1: docs[0..4] (5 documents)
   // Batch 2: docs[5..8] (4 documents)
   // Pending: docs[9..] (3 documents)
+  const registered = new Map(); // sample file -> recordId
   const batch1Docs = docs.slice(0, 5);
   const batch2Docs = docs.slice(5, 9);
   const pendingDocs = docs.slice(9);
@@ -100,6 +104,7 @@ async function main() {
   for (const doc of batch1Docs) {
     process.stdout.write(`  • Uploading ${doc.file}... `);
     const uploaded = await uploadFile(doc.file);
+    registered.set(doc.file, uploaded.recordId);
     process.stdout.write(`(${uploaded.recordId}) → Confirming... `);
     await confirmRecord(uploaded.recordId, doc);
     console.log('✓ pending');
@@ -114,6 +119,7 @@ async function main() {
   for (const doc of batch2Docs) {
     process.stdout.write(`  • Uploading ${doc.file}... `);
     const uploaded = await uploadFile(doc.file);
+    registered.set(doc.file, uploaded.recordId);
     process.stdout.write(`(${uploaded.recordId}) → Confirming... `);
     await confirmRecord(uploaded.recordId, doc);
     console.log('✓ pending');
@@ -128,6 +134,7 @@ async function main() {
   for (const doc of pendingDocs) {
     process.stdout.write(`  • Uploading ${doc.file}... `);
     const uploaded = await uploadFile(doc.file);
+    registered.set(doc.file, uploaded.recordId);
     process.stdout.write(`(${uploaded.recordId}) → Confirming... `);
     await confirmRecord(uploaded.recordId, doc);
     console.log('✓ pending');
@@ -138,7 +145,13 @@ async function main() {
   console.log(`  • ${batch1.batchId}: 5 records (anchored)`);
   console.log(`  • ${batch2.batchId}: 4 records (anchored)`);
   console.log(`  • Pending: ${pendingDocs.length} records (ready to seal on Batches page)`);
-  console.log('\nReady for demo! Open web app at http://localhost:5173 and verifier at http://localhost:5174');
+  if (manifest.tampered) {
+    const { file, basedOn, change } = manifest.tampered;
+    console.log(
+      `\nField diff demo: ${basedOn} is ${registered.get(basedOn)}; samples/${file} is its tampered copy (${change}).`,
+    );
+  }
+  console.log('\nReady for demo! Open web app at http://localhost:5273 and verifier at http://localhost:5274');
 }
 
 main().catch((err) => fail(err.stack || err.message));

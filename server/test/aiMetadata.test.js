@@ -118,3 +118,61 @@ test('only the first 4,000 characters are sent, fenced as data', async () => {
   assert.ok(prompt.includes('<<<DOCUMENT'));
   assert.equal(prompt.match(/DOCUMENT>>>/g).length, 1, 'document cannot close the fence early');
 });
+
+const SLIP = `BRIGHTWELL ANALYTICS PVT LTD
+PAYSLIP FOR THE MONTH OF MARCH 2026
+Employee name Sameer Patil Designation Data Analyst
+Employee ID BW-1042 Pay date 31/03/2026
+Net Pay ₹ 50,000`;
+const slipOutput = (fields) => ({
+  docType: field('SALARY_SLIP', 0.9, 'PAYSLIP FOR THE MONTH OF MARCH 2026'),
+  issuer: field('Brightwell Analytics Pvt Ltd', 0.9, 'BRIGHTWELL ANALYTICS PVT LTD'),
+  date: field('2026-03-31', 0.8, 'Employee ID BW-1042 Pay date 31/03/2026'),
+  fields,
+});
+
+test('AI document fields are normalised by core and kept only with evidence that shows them', async () => {
+  const { suggestions, extractionPath } = await suggestMetadata(
+    SLIP,
+    gemini(
+      replyWith(
+        slipOutput({
+          netPay: field('₹ 50,000', 0.95, 'Net Pay ₹ 50,000'),
+          employeeName: field('Sameer Patil', 0.9, 'Employee name Sameer Patil Designation Data Analyst'),
+          payPeriod: field('March 2026', 0.9, 'PAYSLIP FOR THE MONTH OF MARCH 2026'),
+          employeeId: field('BW-9999', 0.9, 'Employee ID BW-1042 Pay date 31/03/2026'), // not in its evidence
+          grossPay: field('56,500', 0.9, 'Total earnings 56,500'), // evidence not in the document
+          bonus: field('1,000', 0.9, 'Net Pay ₹ 50,000'), // not a known field
+        }),
+      ),
+    ),
+  );
+  assert.equal(extractionPath, 'ai');
+  assert.deepEqual(suggestions.fields, {
+    employeeName: { value: 'SAMEER PATIL', confidence: 0.9, evidence: 'Employee name Sameer Patil Designation Data Analyst' },
+    payPeriod: { value: '2026-03', confidence: 0.9, evidence: 'PAYSLIP FOR THE MONTH OF MARCH 2026' },
+    netPay: { value: '5000000', confidence: 0.95, evidence: 'Net Pay ₹ 50,000' },
+  });
+});
+
+test('AI fields: an unreadable value is dropped; fields that are not an object fall back to rules', async () => {
+  const unreadable = await suggestMetadata(
+    SLIP,
+    gemini(replyWith(slipOutput({ netPay: field('fifty thousand', 0.9, 'Net Pay ₹ 50,000') }))),
+  );
+  assert.deepEqual(unreadable.suggestions.fields, {});
+  const broken = await suggestMetadata(SLIP, gemini(replyWith(slipOutput(['netPay']))));
+  assert.equal(broken.extractionPath, 'fallback');
+  assert.equal(broken.suggestions.fields.netPay.value, '5000000', 'rules read the net pay instead');
+});
+
+test('AI_MODE=off: fields come from core extractFields, with the evidence line', async () => {
+  const { suggestions, extractionPath } = await suggestMetadata(SLIP, { aiMode: 'off', today });
+  assert.equal(extractionPath, 'fallback');
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(suggestions.fields).map(([name, s]) => [name, s.value])),
+    { employeeName: 'SAMEER PATIL', employeeId: 'BW-1042', payPeriod: '2026-03', netPay: '5000000' },
+  );
+  assert.equal(suggestions.fields.netPay.evidence, 'Net Pay ₹ 50,000');
+  assert.ok(suggestions.fields.netPay.confidence > 0 && suggestions.fields.netPay.confidence < 1);
+});

@@ -68,3 +68,15 @@ test('every suggested value has evidence that is a line of the text', () => {
     assert.ok(text.split('\n').includes(s.evidence[field]), `${field} evidence is a source line`);
   }
 });
+
+test('suggestFieldsByRules reads the labelled fields of every docType, with evidence', async () => {
+  const { suggestFieldsByRules } = await import('../src/services/fallbackMetadata.js');
+  const s = suggestFieldsByRules(`Statement of Marks
+Student name Kabir Shaikh
+Seat number MSU-DS-24-0203`);
+  assert.deepEqual(s, {
+    studentName: { value: 'KABIR SHAIKH', confidence: 0.75, evidence: 'Student name Kabir Shaikh' },
+    seatNumber: { value: 'MSU-DS-24-0203', confidence: 0.75, evidence: 'Seat number MSU-DS-24-0203' },
+  });
+  assert.deepEqual(suggestFieldsByRules('hello world'), {});
+});

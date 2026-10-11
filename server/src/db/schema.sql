@@ -19,6 +19,15 @@ CREATE TABLE IF NOT EXISTS records (
   created_by TEXT, confirmed_by TEXT,
   created_at TEXT NOT NULL, confirmed_at TEXT
 );
+-- v2: each confirmed record's salted fields, the leaves of its field tree (fieldsRoot is rebuilt from these)
+CREATE TABLE IF NOT EXISTS record_fields (
+  record_id TEXT NOT NULL REFERENCES records(record_id),
+  idx       INTEGER NOT NULL,               -- position in the field tree (schema order), 0-based
+  name      TEXT NOT NULL,                  -- e.g. netPay
+  value     TEXT NOT NULL,                  -- normalised: amounts in paise, names uppercase, months YYYY-MM
+  salt      TEXT NOT NULL,                  -- 32 lowercase hex chars from crypto.randomBytes(16)
+  PRIMARY KEY (record_id, name)
+);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, actor TEXT,
   action TEXT NOT NULL,                     -- UPLOAD, CONFIRM, SEAL, PUBLISH, AUDIT, TAMPER, REJECT

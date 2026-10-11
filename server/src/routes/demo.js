@@ -6,8 +6,9 @@ import { tamper } from '../services/tamper.js';
 const router = Router();
 
 /**
- * POST /api/demo/tamper  body { type: "stored_file" | "db_metadata" | "restore", recordId }
- *   db_metadata: change the record's issuer in the DB (original kept in the audit log detail)
+ * POST /api/demo/tamper  body { type: "stored_file" | "db_metadata" | "restore", recordId, field? }
+ *   db_metadata: change the record's issuer in the DB, or with field (e.g. "netPay") that confirmed
+ *                document field (original kept in the audit log detail)
  *   stored_file: flip one byte near the middle of the stored file (offset + original byte in the detail)
  *   restore:     undo the most recent tamper on that record that has not been undone yet
  * -> { ok: true, detail }
@@ -15,8 +16,8 @@ const router = Router();
  *    409 NOTHING_TO_RESTORE
  */
 router.post('/api/demo/tamper', (req, res) => {
-  const { type, recordId } = req.body ?? {};
-  res.json({ ok: true, detail: tamper({ type, recordId, actor: req.actor }) });
+  const { type, recordId, field } = req.body ?? {};
+  res.json({ ok: true, detail: tamper({ type, recordId, field, actor: req.actor }) });
 });
 
 export default router;

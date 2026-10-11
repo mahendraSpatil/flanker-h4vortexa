@@ -1,7 +1,18 @@
 // Owner: Mahendra | Confirm screen: review AI suggestions + evidence, edit, confirm metadata
 // Layout follows "ProofChain UI Screens" screen 2.
-import { DOC_TYPES, ISSUER_MAX_LENGTH, canonicalJSON, normText } from '@proofchain/core';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  DOC_TYPES,
+  FieldValueError,
+  ISSUER_MAX_LENGTH,
+  canonicalJSON,
+  displayFieldValue,
+  fieldDefinition,
+  fieldInputValue,
+  fieldSchema,
+  normText,
+  normalizeFieldValue,
+} from '@proofchain/core';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import * as documents from '../api/documents.js';
 import { HashChip } from './Upload.jsx';
@@ -32,6 +43,61 @@ function isCalendarDate(value) {
   return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
 }
 
+/** The server draws the salts, so fieldsRoot exists only after confirm: the preview shows this instead. */
+const FIELDS_ROOT_PREVIEW = '(computed on confirm from the salted fields)';
+const PREVIEW_SENTINEL = `0x${'0'.repeat(64)}`;
+
+/** A document field's value as the server will store it, or null when blank or unreadable. */
+function readFieldValue(kind, raw) {
+  if (!raw || raw.trim() === '') return null;
+  try {
+    return normalizeFieldValue(kind, raw);
+  } catch (err) {
+    if (err instanceof FieldValueError) return null;
+    throw err;
+  }
+}
+
+/** Errors for the selected docType's document fields, keyed "fields.<name>" like the server's. */
+function validateDocumentFields(docType, fieldValues) {
+  const errors = {};
+  for (const { name, kind, required } of fieldSchema(docType)) {
+    const raw = fieldValues[name] ?? '';
+    if (raw.trim() === '') {
+      if (required) errors[`fields.${name}`] = 'is required';
+      continue;
+    }
+    try {
+      normalizeFieldValue(kind, raw);
+    } catch (err) {
+      if (!(err instanceof FieldValueError)) throw err;
+      errors[`fields.${name}`] = err.message;
+    }
+  }
+  return errors;
+}
+
+/** The selected docType's non-blank field inputs, as sent to the server (it normalises them). */
+function fieldsPayload(docType, fieldValues) {
+  return Object.fromEntries(
+    fieldSchema(docType)
+      .filter(({ name }) => (fieldValues[name] ?? '').trim() !== '')
+      .map(({ name }) => [name, fieldValues[name]]),
+  );
+}
+
+/** Initial input text per field name: confirmed values, else suggestions, as a person would type them. */
+function initialFieldValues(view) {
+  const source = view.confirmed
+    ? (view.confirmed.fields ?? []).map(({ name, value }) => [name, value])
+    : Object.entries(view.suggestions?.fields ?? {}).map(([name, { value }]) => [name, value]);
+  return Object.fromEntries(
+    source
+      .filter(([name]) => fieldDefinition(name))
+      .map(([name, value]) => [name, fieldInputValue(fieldDefinition(name).kind, value)]),
+  );
+}
+
 /**
  * Mirrors the server rules so mistakes show before the request; the server stays the authority.
  * Messages are fragments read after the field label, like the server's ("Issuer is required").
@@ -52,7 +118,14 @@ function validate(values, today) {
 function toView(source) {
   const confirmed =
     source.status && source.status !== 'draft'
-      ? { docType: source.docType, issuer: source.issuer, date: source.date, leaf: source.leaf, batchId: source.batchId }
+      ? {
+          docType: source.docType,
+          issuer: source.issuer,
+          date: source.date,
+          fields: source.fields ?? [],
+          leaf: source.leaf,
+          batchId: source.batchId,
+        }
       : null;
   return {
     recordId: source.recordId,
@@ -165,7 +238,10 @@ function DocumentPanel({ view }) {
   const url = documents.fileUrl(view.recordId);
   const isText = view.mime === 'text/plain';
   const isImage = view.mime?.startsWith('image/');
-  const evidence = FIELDS.map((f) => view.suggestions?.evidence?.[f]).filter(Boolean);
+  const evidence = [
+    ...FIELDS.map((f) => view.suggestions?.evidence?.[f]),
+    ...Object.values(view.suggestions?.fields ?? {}).map((s) => s.evidence),
+  ].filter(Boolean);
 
   return (
     <Card
@@ -236,19 +312,26 @@ function ConfirmForm({ view }) {
     date: suggestions?.date ?? '',
   };
   const [values, setValues] = useState({ docType: initial.docType ?? '', issuer: initial.issuer ?? '', date: initial.date ?? '' });
+  const [fieldValues, setFieldValues] = useState(() => initialFieldValues(view));
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [result, setResult] = useState(null);
   const [anchored, setAnchored] = useState(view.status === 'anchored');
 
-  const liveErrors = validate(values, today);
+  const schema = fieldSchema(values.docType);
+  const liveErrors = { ...validate(values, today), ...validateDocumentFields(values.docType, fieldValues) };
+  const missingRequired = schema.filter(({ name, required }) => required && !(fieldValues[name] ?? '').trim());
   const canonical = useMemo(() => {
     if (Object.keys(liveErrors).length > 0) return null;
-    return canonicalJSON({ recordId: view.recordId, fileHash: view.fileHash, docType: values.docType, issuer: values.issuer, date: values.date });
-    // liveErrors is derived from values
+    const record = { recordId: view.recordId, fileHash: view.fileHash, fieldsRoot: PREVIEW_SENTINEL };
+    return canonicalJSON({ ...record, docType: values.docType, issuer: values.issuer, date: values.date }).replace(
+      PREVIEW_SENTINEL,
+      FIELDS_ROOT_PREVIEW,
+    );
+    // liveErrors is derived from values and fieldValues
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values, view.recordId, view.fileHash]);
+  }, [values, fieldValues, view.recordId, view.fileHash]);
 
   if (result) return <ConfirmedPanel result={result} />;
 
@@ -257,6 +340,10 @@ function ConfirmForm({ view }) {
   const setField = (field, value) => {
     setValues((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
+  const setDocumentField = (name, value) => {
+    setFieldValues((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev) => ({ ...prev, [`fields.${name}`]: undefined }));
   };
 
   async function handleSubmit(event) {
@@ -267,7 +354,12 @@ function ConfirmForm({ view }) {
 
     setSubmitting(true);
     try {
-      setResult(await documents.confirm(view.recordId, values));
+      setResult(
+        await documents.confirm(view.recordId, {
+          ...values,
+          fields: fieldsPayload(values.docType, fieldValues),
+        }),
+      );
     } catch (err) {
       if (err.code === 'VALIDATION') setErrors(err.details?.fields ?? {});
       if (err.code === 'ALREADY_ANCHORED') setAnchored(true);
@@ -339,13 +431,45 @@ function ConfirmForm({ view }) {
           {(props) => <input {...props} type="date" value={values.date} max={today} readOnly={readOnly} onChange={(e) => setField('date', e.target.value)} />}
         </Field>
 
+        {values.docType && (
+          <section aria-labelledby="document-fields-title" className="space-y-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 id="document-fields-title" className="text-sm font-semibold text-slate-900">
+                Document fields
+              </h3>
+              <span className="text-xs text-slate-500">
+                {schema.length > 0 ? 'Each value is salted and committed to by fieldsRoot' : ''}
+              </span>
+            </div>
+            {schema.length === 0 ? (
+              <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                {docTypeLabel(values.docType)} has no document fields; its record commits to the empty field root.
+              </p>
+            ) : (
+              schema.map((def) => (
+                <DocumentField
+                  key={def.name}
+                  def={def}
+                  value={fieldValues[def.name] ?? ''}
+                  suggestion={view.suggestions?.fields?.[def.name]}
+                  byAi={byAi}
+                  error={errors[`fields.${def.name}`]}
+                  readOnly={readOnly}
+                  onChange={setDocumentField}
+                />
+              ))
+            )}
+          </section>
+        )}
+
         <div>
           <p className="text-sm font-semibold text-slate-900">Canonical record that will be hashed</p>
           <pre className="mt-2 overflow-x-auto rounded-md bg-slate-900 p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-slate-100">
             {canonical ?? 'Complete the fields above to see the exact text that will be hashed.'}
           </pre>
           <p className="mt-1 text-xs text-slate-500">
-            leaf = SHA-256(0x00 ‖ this text). AI suggestions and OCR text are never hashed.
+            leaf = SHA-256(0x00 ‖ this text); fieldsRoot = root of the fields' tree, each leaf SHA-256(0x02 ‖ name, salt,
+            value). AI suggestions and OCR text are never hashed.
           </p>
         </div>
 
@@ -356,11 +480,16 @@ function ConfirmForm({ view }) {
           </div>
         )}
 
+        {!anchored && missingRequired.length > 0 && (
+          <p className="text-sm text-amber-800">
+            Fill the required fields to confirm: {missingRequired.map((def) => def.label).join(', ')}.
+          </p>
+        )}
         <div className="flex gap-3">
           {!anchored && (
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || missingRequired.length > 0}
               className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
             >
               {submitting ? 'Confirming…' : view.status === 'pending' ? 'Update and keep pending' : 'Confirm and mark pending'}
@@ -459,6 +588,110 @@ function Field({ field, suggestions, byAi, value, error, help, onUseSuggestion, 
   );
 }
 
+/** One document field: input prefilled from the suggestion, evidence quote, confidence, normalised preview. */
+function DocumentField({ def, value, suggestion, byAi, error, readOnly, onChange }) {
+  const id = `field-doc-${def.name}`;
+  const suggestedInput = suggestion ? fieldInputValue(def.kind, suggestion.value) : null;
+  const confidence = suggestion?.confidence ?? 0;
+  const low = suggestion !== undefined && confidence < LOW_CONFIDENCE;
+  const normalized = readFieldValue(def.kind, value);
+  const edited = suggestion !== undefined && normalized !== suggestion.value;
+  const describedBy = [error && `${id}-error`, suggestion && `${id}-evidence`, `${id}-help`].filter(Boolean).join(' ');
+
+  return (
+    <div className={`rounded-lg border p-4 ${error ? 'border-rose-300' : low ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'}`}>
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor={id} className="text-sm font-semibold text-slate-900">
+          {def.label}
+          {def.kind === 'amount' && <span className="font-normal text-slate-500"> (₹)</span>}
+          {def.required ? (
+            <span className="ml-1 text-rose-600" aria-hidden="true">
+              *
+            </span>
+          ) : (
+            <span className="ml-2 text-xs font-normal text-slate-500">optional</span>
+          )}
+        </label>
+        {edited && (
+          <button type="button" onClick={() => onChange(def.name, suggestedInput)} className="text-xs font-medium text-indigo-600 underline">
+            Edited · use suggestion ({suggestedInput})
+          </button>
+        )}
+      </div>
+
+      <input
+        id={id}
+        type="text"
+        value={value}
+        readOnly={readOnly}
+        required={def.required}
+        aria-invalid={Boolean(error)}
+        aria-describedby={describedBy}
+        placeholder={FIELD_PLACEHOLDERS[def.kind]}
+        onChange={(e) => onChange(def.name, e.target.value)}
+        className={`mt-2 w-full rounded-md border bg-white px-3 py-2 text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none read-only:bg-slate-50 ${
+          error ? 'border-rose-400' : 'border-slate-300'
+        } ${def.kind === 'name' ? '' : 'font-mono'}`}
+      />
+
+      {suggestion ? (
+        <div id={`${id}-evidence`} className="mt-3 space-y-2">
+          <div className="flex items-center gap-3 text-xs">
+            <span className={`rounded px-1.5 py-0.5 font-semibold ${byAi ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
+              {byAi ? 'AI' : 'Rules'}
+            </span>
+            <span className="text-slate-500">Confidence</span>
+            <ConfidenceBar value={confidence} low={low} />
+          </div>
+          <blockquote className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 font-mono text-xs break-words text-amber-900">
+            “{suggestion.evidence}”
+          </blockquote>
+        </div>
+      ) : (
+        !readOnly && <p className="mt-2 text-xs text-slate-500">No suggestion with evidence was found. Enter it from the document.</p>
+      )}
+
+      {error ? (
+        <p id={`${id}-error`} className="mt-2 text-sm text-rose-700">
+          {def.label} {error}
+        </p>
+      ) : (
+        <p id={`${id}-help`} className="mt-2 text-xs text-slate-500">
+          {normalized !== null ? (
+            <>
+              Recorded as <span className="font-semibold text-slate-700">{displayFieldValue(def.kind, normalized)}</span>
+              {normalized !== value && (
+                <>
+                  {' '}
+                  · hashed as <span className="font-mono">{normalized}</span>
+                </>
+              )}
+            </>
+          ) : (
+            FIELD_HELP[def.kind]
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const FIELD_PLACEHOLDERS = {
+  name: 'e.g. Sameer Patil',
+  id: 'e.g. BW-1042',
+  month: 'e.g. March 2026',
+  date: 'e.g. 31/03/2026',
+  amount: 'e.g. 50,000',
+};
+
+const FIELD_HELP = {
+  name: 'Stored in capitals with single spaces.',
+  id: 'Stored in capitals without spaces.',
+  month: 'Month and year, e.g. March 2026 or 03/2026.',
+  date: 'Day first, e.g. 31/03/2026, or 2026-03-31.',
+  amount: 'In rupees; ₹, Rs, commas and /- are fine. Stored in paise.',
+};
+
 function ConfidenceBar({ value, low }) {
   const percent = Math.round(Math.min(1, Math.max(0, value)) * 100);
   return (
@@ -498,6 +731,15 @@ function ConfirmedPanel({ result }) {
           <dd>{record.issuer}</dd>
           <dt className="text-slate-500">Date</dt>
           <dd>{record.date}</dd>
+          {(record.fields ?? []).map((field) => (
+            <Fragment key={field.name}>
+              <dt className="text-slate-500">{field.label}</dt>
+              <dd>
+                {field.display}{' '}
+                {field.display !== field.value && <span className="font-mono text-xs text-slate-500">({field.value})</span>}
+              </dd>
+            </Fragment>
+          ))}
           <dt className="text-slate-500">Leaf</dt>
           <dd>
             <HashChip value={leaf} />

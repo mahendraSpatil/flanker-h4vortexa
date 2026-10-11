@@ -26,9 +26,9 @@ A document moves through three states: `draft` (uploaded) → `pending` (metadat
 2. **Duplicate check.** If `fileHash` exists, return 409 with the existing recordId and batch.
 3. **Store** the file at `server/storage/<fileHash>` and save the record as `draft`.
 4. **Extract text.** PDF text layer first (pdf-parse); OCR (tesseract.js) only when there is no text layer or the file is an image.
-5. **AI suggests metadata** (docType, issuer, date) with confidence and the source line it came from. If AI is off or fails, a regex/keyword fallback runs. Record which path ran.
-6. **Human confirms** on a confirm screen: edit or accept each field. Validate against the rules (docType enum, ISO date not in the future, issuer not empty).
-7. **Build the canonical record and its leaf** (see Locked formats). Record becomes `pending`.
+5. **AI suggests metadata** (docType, issuer, date) and the document's fields (net pay, employee name, ...) with confidence and the source line each came from. If AI is off or fails, a regex/keyword fallback runs (core `extractFields` for the fields). Record which path ran.
+6. **Human confirms** on a confirm screen: edit or accept each value. Validate against the rules (docType enum, ISO date not in the future, issuer not empty, every required field of the docType filled and readable).
+7. **Normalise and salt the fields, build the field tree, then the v2 canonical record and its leaf** (see Locked formats and Document fields). Record becomes `pending`.
 
 **Batching and publishing (server + contract)**
 
@@ -41,20 +41,20 @@ A document moves through three states: `draft` (uploaded) → `pending` (metadat
 
 12. The user drops in the **document** + its **proof.json**.
 13. The verifier hashes the file in the browser and reads `getBatch(batchId)` **directly from the pinned contract**.
-14. It runs checks 0–4 (see Verification) and shows every check with computed vs expected values.
-15. A plain-language explanation of any failure is shown (deterministic template inside the verifier; no AI, no server call). It never changes the result.
+14. It runs checks 0–4 (see Verification) and shows every check with computed vs expected values, plus the registered field values when check 2b passed.
+15. A plain-language explanation of any failure is shown (deterministic template inside the verifier; no AI, no server call). For `DOCUMENT_MODIFIED` on a v2 proof it also shows **what changed**, field by field, read from the file's text in the browser. None of this ever changes the result.
 
 **Integrity audit (server)**
 
-16. **Audit** recomputes every batch's root from the DB and compares it with the chain. Any batch that differs is flagged, with the exact records whose leaves changed. This catches "stored record no longer matches its published reference".
+16. **Audit** recomputes every batch's root from the DB (records and their stored, salted fields) and compares it with the chain. Any batch that differs is flagged, with the exact records whose leaves changed. This catches "stored record no longer matches its published reference".
 
-**Tamper demo** buttons: flip a byte in a stored file, edit a record's issuer in the DB, corrupt one sibling in a proof, swap in a fake root. Each must fail at the right check, and the verifier must still reject a tampered document after the DB is altered.
+**Tamper demo** buttons: flip a byte in a stored file, edit a record's issuer or a field (e.g. net pay) in the DB, corrupt one sibling in a proof, swap in a fake root. Each must fail at the right check, and the verifier must still reject a tampered document after the DB is altered.
 
 ---
 
 ## Merkle trees in this project
 
-Our tree is built **across documents**: one leaf per document record, one root per batch. It is not a tree over the parts of a single document (that is the redaction use case, a stretch goal only).
+Our batch tree is built **across documents**: one leaf per document record, one root per batch. Each v2 record also commits to a small **field tree** over that document's own fields (see Document fields); only its root, `fieldsRoot`, goes into the record.
 
 ```
                ROOT            <- only this goes on-chain (32 bytes)
@@ -80,35 +80,63 @@ h = SHA-256(0x01 ‖ L0 ‖ h)    // sibling L0 is on the left  -> N01
 h = SHA-256(0x01 ‖ h ‖ N23)   // sibling N23 is on the right -> ROOT
 ```
 
+**Prefixes in use:** `0x00` record leaf, `0x01` batch node, `0x02` field leaf, `0x03` field node, `0x04` empty field root. Each kind of hash has its own, so none can pass as another.
+
 ---
 
 ## Locked formats (do not change without telling all three)
 
 Everyone imports these from `@proofchain/core`; nobody re-implements them. A one-character difference here breaks every proof.
 
-**Canonical record**
+**Canonical record (v2; every record confirmed from now on)**
 
 ```json
-{"date":"2026-06-14","docType":"DEGREE_CERTIFICATE","fileHash":"0x9b2c...e41a","issuer":"Pimpri Institute of Technology","recordId":"REC-000002","v":1}
+{"date":"2026-06-14","docType":"DEGREE_CERTIFICATE","fieldsRoot":"0x3c0f...b7d2","fileHash":"0x9b2c...e41a","issuer":"Pimpri Institute of Technology","recordId":"REC-000002","v":2}
 ```
 
 | Field | Rule |
 | --- | --- |
-| `v` | integer `1` (scheme version) |
+| `v` | integer `2` (record version). A record without `fieldsRoot` is v1 (`"v":1`), as before field trees; v1 records and proofs still verify |
 | `recordId` | `REC-` + 6-digit zero-padded counter, e.g. `REC-000002` (sorts correctly as a string) |
 | `fileHash` | `0x` + 64 lowercase hex chars |
+| `fieldsRoot` | `0x` + 64 lowercase hex chars: root of the record's field tree (`EMPTY_FIELDS_ROOT` = SHA-256(0x04) when the docType has no fields) |
 | `docType` | one of: `DEGREE_CERTIFICATE`, `MARKSHEET`, `SALARY_SLIP`, `OFFER_LETTER`, `EXPERIENCE_LETTER`, `OTHER` |
 | `issuer` | Unicode NFC, trimmed, inner whitespace collapsed to one space, 1–120 chars |
 | `date` | `YYYY-MM-DD`, valid calendar date, not in the future |
 
 **canonicalJSON rules (`json-sorted-v1`):** keys sorted A→Z, no whitespace, UTF-8, no extra fields, values already normalised as above. For our flat record this is byte-identical to RFC 8785 (JCS).
 
+**Document fields (`core/src/fields.js`, the single source of truth)**
+
+| docType | Fields in schema order: name (kind) — `*` = required |
+| --- | --- |
+| `SALARY_SLIP` | `employeeName`* (name), `employeeId` (id), `payPeriod`* (month), `grossPay` (amount), `netPay`* (amount) |
+| `MARKSHEET` | `studentName`* (name), `seatNumber` (id) |
+| `DEGREE_CERTIFICATE` | `certificateNo` (id) |
+| `OFFER_LETTER`, `EXPERIENCE_LETTER`, `OTHER` | none |
+
+| Kind | Normalised form (`normalizeFieldValue`; unreadable input throws `FieldValueError` `INVALID_FIELD_VALUE`, never guessed) |
+| --- | --- |
+| amount | integer paise as a decimal string: strip ₹, `Rs`, `INR`, commas, spaces, `/-`; `"30,000"`, `"₹30000.00"`, `"Rs 30,000/-"` → `"3000000"` |
+| name | NFC, trimmed, inner whitespace collapsed, uppercase |
+| id | uppercase, all whitespace removed |
+| month | `YYYY-MM` (`March 2026`, `03/2026`, `2026-03`) |
+| date | `YYYY-MM-DD` (ISO, day-first `31/03/2026`, `31 March 2026`) |
+
+- Fields are always in **schema order**, never input order; a field may appear once; required fields must be present; values must already be normalised (`validateFields`).
+- `salt` = 16 random bytes as 32 lowercase hex chars (no `0x`), one per field, drawn by the server (`crypto.randomBytes`) at every confirm.
+- `fieldLeaf = SHA-256(0x02 ‖ utf8(json-sorted-v1 {name, salt, value}))`
+- `fieldNode = SHA-256(0x03 ‖ leftBytes ‖ rightBytes)` (32 raw bytes each); an odd node is promoted, as in the batch tree.
+- `fieldsRoot` = root over the field leaves; zero fields → `EMPTY_FIELDS_ROOT = SHA-256(0x04)`.
+- Core API: `buildFieldTree(fields) → { root, leaves }`; single-field disclosure `fieldProof(fields, i)` / `verifyFieldProof(disclosure, fieldsRoot)` (core only, no UI yet); `extractFields(docType, text)` and `diffFields(registered, extracted)` for explanations only.
+
 **Hashing**
 
 - `fileHash = SHA-256(bytes)`, where `fileNormalization` (recorded in `proof.scheme`) says which bytes: `"none"` = the raw file; `"text-v1"` = the file after the rule below. `detectNormalization({ fileName, mime })` picks it at upload (`"text-v1"` for a `.txt` name or `text/plain` MIME, else `"none"`); `verify()` applies the value in the proof.
 - **`text-v1`** (`normalizeTextFile`): decode as UTF-8, strictly (invalid UTF-8 → error `INVALID_TEXT_ENCODING`; reject the upload); strip one leading BOM; convert CRLF and lone CR to LF; remove spaces and tabs at the end of every line; remove trailing newlines at end of file; apply Unicode NFC; re-encode as UTF-8.
-- `leaf = SHA-256(0x00 ‖ utf8(canonicalJSON(record)))`
+- `leaf = SHA-256(0x00 ‖ utf8(canonicalJSON(record)))` (v2 record, with `fieldsRoot`)
 - `node = SHA-256(0x01 ‖ leftBytes ‖ rightBytes)` (32 raw bytes each)
+- Field tree: `0x02` / `0x03` / `0x04`, see Document fields.
 - All hashes shown and stored as `0x` + lowercase hex.
 
 **Batch IDs:** `BATCH-0001`, `BATCH-0002`, … On-chain key = `ethers.encodeBytes32String(batchId)`.
@@ -119,7 +147,14 @@ Everyone imports these from `@proofchain/core`; nobody re-implements them. A one
 // Normalise one string field: NFC, trim, collapse inner whitespace
 export const normText = (s) => s.normalize('NFC').trim().replace(/\s+/g, ' ');
 
-// Build the canonical JSON string for a record (flat object, keys sorted)
+// json-sorted-v1: a flat object as JSON with keys sorted A -> Z and no whitespace
+export function sortedJSON(flat) {
+  const keys = Object.keys(flat).sort(); // A -> Z
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + JSON.stringify(flat[k])).join(',') + '}';
+}
+
+// Build the canonical JSON string for a record (flat object, keys sorted).
+// A record with a fieldsRoot is v2; without one it is v1, byte-identical to before field trees.
 export function canonicalJSON(record) {
   const r = {
     v: 1,
@@ -129,8 +164,11 @@ export function canonicalJSON(record) {
     issuer: normText(record.issuer),
     date: record.date,
   };
-  const keys = Object.keys(r).sort(); // A -> Z
-  return '{' + keys.map((k) => JSON.stringify(k) + ':' + JSON.stringify(r[k])).join(',') + '}';
+  if (record.fieldsRoot !== undefined) {
+    r.v = 2;
+    r.fieldsRoot = record.fieldsRoot.toLowerCase();
+  }
+  return sortedJSON(r);
 }
 ```
 
@@ -142,7 +180,7 @@ export function canonicalJSON(record) {
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "scheme": {
     "hash": "sha256",
     "leafPrefix": "0x00",
@@ -158,6 +196,10 @@ export function canonicalJSON(record) {
     "date": "2026-06-14"
   },
   "fileHash": "0x9b2c...e41a",
+  "fieldsRoot": "0x3c0f...b7d2",
+  "fields": [
+    { "name": "certificateNo", "value": "PIT/DEG/2026/0042", "salt": "8f14e45fceea167a5a36dedd4bea2543" }
+  ],
   "leaf": "0x4d7f...08c3",
   "batchId": "BATCH-0007",
   "leafIndex": 1,
@@ -177,13 +219,15 @@ export function canonicalJSON(record) {
 }
 ```
 
-Real hashes are 64 hex characters; they are shortened here.
+Real hashes are 64 hex characters; they are shortened here. A **v1** proof (record confirmed before field trees) has exactly this shape with `"v": 1` and without `fieldsRoot` and `fields`; it still verifies, with check 2b skipped.
 
 | Field | Purpose | Check |
 | --- | --- | --- |
-| `v`, `scheme` | Exact hashing rules, so anyone can reproduce them | 0 |
+| `v`, `scheme` | Exact hashing rules, so anyone can reproduce them (`v` 2 adds the field tree) | 0 |
 | `fileHash` | SHA-256 of the registered file | 1 |
 | `recordId` + `metadata` | Confirmed fields that went into the leaf | 2 |
+| `fieldsRoot` | Part of the record: root of its field tree (v2) | 2, 2b |
+| `fields` | `[{ name, value, salt }]` in schema order, normalised values (v2) | 0, 2b |
 | `leaf` | Expected leaf hash | 2 |
 | `siblings` | One hash per level, bottom to top; `pos` = the sibling's side | 3 |
 | `leafIndex`, `leafCount` | Position in the batch; sanity-check path length | 0, 3 |
@@ -202,13 +246,14 @@ A document is valid **only if the root computed from the uploaded file equals th
 | 0 | proof.json well-formed: fields present, hex lengths, `v`, scheme matches ours, `leafIndex < leafCount`, siblings count matches expected path length | `FORMAT_INVALID` |
 | 0b | `anchor.chainId` + `anchor.contract` equal the verifier's **pinned** values | `REGISTRY_MISMATCH` |
 | 1 | SHA-256 of uploaded file = `proof.fileHash` | `DOCUMENT_MODIFIED` |
-| 2 | leaf rebuilt from fileHash + recordId + metadata = `proof.leaf` | `METADATA_MODIFIED` |
+| 2 | leaf rebuilt from fileHash + recordId + fieldsRoot (v2) + metadata = `proof.leaf` | `METADATA_MODIFIED` |
+| 2b | **Field values match fieldsRoot** (v2 only; skipped for v1): field tree rebuilt from `proof.fields` = `proof.fieldsRoot` | `PROOF_INVALID` |
 | 3 | folding siblings from the leaf reaches `proof.root` | `PROOF_INVALID` |
 | 4a | contract has a root for `batchId` | `BATCH_NOT_PUBLISHED` |
 | 4b | `proof.root` = on-chain root, and `proof.leafCount` = on-chain leafCount | `ROOT_MISMATCH` |
 | ✓ | all passed | `VALID` |
 
-**Why editing proof.json cannot beat this:** an attacker can recompute fileHash, leaf and root so checks 1–3 pass, but their root will not equal the on-chain root. They cannot change the on-chain root (write-once, publisher-only) and cannot find siblings that reach the real root from a forged leaf (that needs a SHA-256 collision).
+**Why editing proof.json cannot beat this:** an attacker can recompute fileHash, leaf and root so checks 1–3 pass, but their root will not equal the on-chain root. The same holds for fields: an edited value fails 2b; editing `fieldsRoot` too changes the leaf (2), and rebuilding everything ends in `ROOT_MISMATCH` (4b). They cannot change the on-chain root (write-once, publisher-only) and cannot find siblings that reach the real root from a forged leaf (that needs a SHA-256 collision).
 
 **Pinned contract:** the verifier's chainId and contract address come from its own config (`verifier/src/config.js`, built from `shared/deployment.json`), never from `proof.json`. Otherwise an attacker could deploy their own contract with a fake root and point the proof at it.
 
@@ -219,14 +264,16 @@ A document is valid **only if the root computed from the uploaded file equals th
   // CHECK_RESULT[id] of the first check with pass === false; 'VALID' if none failed
   verdict: 'VALID' | 'FORMAT_INVALID' | 'REGISTRY_MISMATCH' | 'DOCUMENT_MODIFIED' | 'METADATA_MODIFIED'
          | 'PROOF_INVALID' | 'BATCH_NOT_PUBLISHED' | 'ROOT_MISMATCH',
-  // Always these 7 checks, in this order, each { id, name, pass, computed, expected, detail }.
+  // Always these 8 checks, in this order, each { id, name, pass, computed, expected, detail }.
   // pass: true | false | null (null = skipped). A failed '0' skips every later check; otherwise
-  // '0b' to '4a' all run, and a failed '4a' skips '4b'. detail: one sentence for the results table.
+  // '0b' to '4a' all run ('2b' is skipped for v1 proofs), and a failed '4a' skips '4b'.
+  // detail: one sentence for the results table.
   checks: [
     { id: '0',  name: 'Proof format',    computed: null,                     expected: null },
     { id: '0b', name: 'Registry',        computed: 'eip155:<anchor>',        expected: 'eip155:<pinned>' },
     { id: '1',  name: 'File hash',       computed: '<hash of the file>',     expected: '<proof.fileHash>' },
     { id: '2',  name: 'Leaf',            computed: '<leaf from proof data>', expected: '<proof.leaf>' },
+    { id: '2b', name: 'Field values match fieldsRoot', computed: '<root of proof.fields>', expected: '<proof.fieldsRoot>' },
     { id: '3',  name: 'Merkle path',     computed: '<folded root>',          expected: '<proof.root>' },
     { id: '4a', name: 'Batch published', computed: '<on-chain root>',        expected: null },
     { id: '4b', name: 'Root',            computed: '<proof.root>',           expected: '<on-chain root>' },
@@ -234,12 +281,19 @@ A document is valid **only if the root computed from the uploaded file equals th
   // Recomputed from the uploaded file itself, for display; null where not computable.
   // VALID implies computed.root === the on-chain root.
   computed: { fileHash, leaf, root },
+  // Only when check 2b passed: the values the record commits to, in schema order.
+  registeredFields?: [{ name, label, value, display }],   // e.g. netPay, 'Net pay', '3000000', '₹30,000'
+  // Only for a v2 proof whose verdict is DOCUMENT_MODIFIED. EXPLANATION ONLY: never changes the verdict.
+  // available is false (with reason) for images/scans, types without fields, or when any check other
+  // than '1' failed (then the proof's values are not known to be registered).
+  // note: 'File differs from the registered original, but every registered field matches (content match, not proof).'
+  fieldDiff?: { available, reason?, fields: [{ name, label, registered, found, status: 'match'|'changed'|'unreadable' }], note? },
 }
 // verify() never throws on bad file or proof input (that is FORMAT_INVALID);
 // it throws TypeError only when `pinned` is misconfigured (a programming error).
 ```
 
-`verify({ fileBytes, proof, chainBatch, pinned })` never talks to the chain itself; the caller reads `chainBatch = { root, leafCount }` (or `null` if unpublished) and passes it in.
+`verify({ fileBytes, proof, chainBatch, pinned, fileText? })` never talks to the chain itself; the caller reads `chainBatch = { root, leafCount }` (or `null` if unpublished) and passes it in. `fileText` is the dropped PDF's text layer (the verifier reads it with pdf.js in the browser), used only for `fieldDiff`; a text-v1 `.txt` is decoded by core itself. The 8 result codes are unchanged; 2b reuses `PROOF_INVALID`.
 
 **Copies people receive (WhatsApp, paper):** compressed or printed copies have different bytes and will fail; that is correct. The receipt QR carries `recordId` + `batchId`, so a person can fetch the original file + proof, verify that cryptographically, and compare it visually with what they were sent.
 
@@ -299,7 +353,7 @@ proofchain/
   CLAUDE.md, GEMINI.md    # this spec (identical copies)
   README.md               # front page + run order
   docs/concepts.md        # background and design reasoning
-  core/                   # @proofchain/core: constants, canonical, hash, merkle, proof, verify (+ tests)
+  core/                   # @proofchain/core: constants, canonical, hash, merkle, fields, proof, verify (+ tests)
   contracts/              # Hardhat 2 (CommonJS package): RootRegistry.sol, scripts/deploy.js, test/
   shared/deployment.json  # written by deploy, committed: { chainId, address, abi }
   server/                 # Express API + SQLite + AI + storage/
@@ -317,14 +371,15 @@ proofchain/
 | Text | `pdf-parse`, `tesseract.js` | Pure JS; no system Tesseract install |
 | AI | Gemini API free tier (`@google/genai`) + regex fallback | Free; fallback satisfies the local-fallback rule |
 | Frontends | React + Vite + Tailwind v4 + react-router-dom | Team already knows it |
+| Verifier PDF text | `pdfjs-dist` 5.4.296, bundled (worker via `pdfjs-dist/build/pdf.worker.min.mjs?url`), loaded on demand | Field diff in the browser with no server; same version pdf-parse uses |
 
 | Service | Port | Command |
 | --- | --- | --- |
 | Hardhat node | 8545 | `npm run chain` |
 | Deploy contract | — | `npm run deploy` (writes `shared/deployment.json`) |
 | Server | 4000 | `npm run server` |
-| Registry app | 5173 | `npm run web` (proxies `/api` to 4000) |
-| Verifier app | 5174 | `npm run verifier` |
+| Registry app | 5273 | `npm run web` (proxies `/api` to 4000) |
+| Verifier app | 5274 | `npm run verifier` |
 | Demo data | — | `npm run seed` |
 | Start over | — | `npm run reset` (hardhat_reset + wipe DB/storage + redeploy) |
 | Tests | — | `npm test` (core + contracts) |
@@ -344,19 +399,19 @@ Frontend and backend work in parallel against this contract; frontends start wit
 | Method + path | Body | Returns | Owner |
 | --- | --- | --- | --- |
 | `GET /api/health` | — | `{ ok, chain, aiMode, contract }` | Archit |
-| `POST /api/documents` | multipart `file` | 201 `{ recordId, fileHash, fileName, mime, status:"draft", suggestions:{ docType, issuer, date, confidence:{...}, evidence:{...} }, extractionPath:"ai"\|"fallback", textMethod:"pdf-text"\|"ocr"\|"plain"\|null, warnings:[string] }`; 400 `NO_FILE` / `EMPTY_FILE` / `UPLOAD_INVALID`; 413 `FILE_TOO_LARGE`; 415 `UNSUPPORTED_TYPE` (not an allowed type, or binary content in a .txt); 415 `INVALID_TEXT_ENCODING` (a .txt that is not valid UTF-8); 409 `DUPLICATE` with `{ recordId, batchId, status }` | Mahendra |
-| `POST /api/documents/:recordId/confirm` | `{ docType, issuer, date }` | `{ record, leaf, status:"pending", canonical }` (`canonical` = the exact text that was hashed); 400 `VALIDATION` with details `{ fields:{ docType?, issuer?, date? } }`; 409 `ALREADY_ANCHORED`; a `pending` record may be re-confirmed until it is sealed | Mahendra |
+| `POST /api/documents` | multipart `file` | 201 `{ recordId, fileHash, fileName, mime, status:"draft", suggestions:{ docType, issuer, date, confidence:{...}, evidence:{...}, fields:{ <name>:{ value, confidence, evidence } } }, extractionPath:"ai"\|"fallback", textMethod:"pdf-text"\|"ocr"\|"plain"\|null, warnings:[string] }`; 400 `NO_FILE` / `EMPTY_FILE` / `UPLOAD_INVALID`; 413 `FILE_TOO_LARGE`; 415 `UNSUPPORTED_TYPE` (not an allowed type, or binary content in a .txt); 415 `INVALID_TEXT_ENCODING` (a .txt that is not valid UTF-8); 409 `DUPLICATE` with `{ recordId, batchId, status }` | Mahendra |
+| `POST /api/documents/:recordId/confirm` | `{ docType, issuer, date, fields:{ <name>: value as typed } }` (amounts in rupees, e.g. `{ netPay:"50,000" }`) | `{ record, leaf, status:"pending", canonical }` (`canonical` = the exact v2 text that was hashed); the server normalises the fields, salts each (`crypto.randomBytes`), stores them and builds fieldsRoot; 400 `VALIDATION` with details `{ fields:{ docType?, issuer?, date?, "fields.<name>"? } }`; 409 `ALREADY_ANCHORED`; a `pending` record may be re-confirmed until it is sealed (fresh salts each time) | Mahendra |
 | `GET /api/documents` | query `status, docType, issuer, batchId, recordId` | `[ record ]` | Mahendra |
 | `GET /api/documents/:recordId/file` | — | the stored file | Mahendra |
-| `GET /api/documents/:recordId/proof` | — | `proof.json` (404 `NOT_ANCHORED` if not anchored; 409 `RECORD_INTEGRITY_FAILED` if the stored record no longer folds to its batch root: run the audit) | Archit |
+| `GET /api/documents/:recordId/proof` | — | `proof.json` v2, with the stored salted fields (404 `NOT_ANCHORED` if not anchored; 409 `RECORD_INTEGRITY_FAILED` if the stored record no longer folds to its batch root: run the audit) | Archit |
 | `POST /api/batches/seal` | — | `{ batchId, root, leafCount, txHash, blockNumber }`; 400 `NOTHING_PENDING` | Archit |
 | `GET /api/batches` | — | `[ { batchId, root, leafCount, txHash, blockNumber, publishedAt, records:[recordId] } ]` newest first | Archit |
 | `POST /api/audit` | — | `{ checkedAt, batches:[ { batchId, status:"OK"\|"MISMATCH", dbRoot, storedRoot, chainRoot, leafCount, chainLeafCount, changedRecords:[recordId], changedFiles:[recordId] } ], onChainOnly:[batchId] }` (read-only); 503 `CHAIN_UNREACHABLE` | Archit |
-| `POST /api/demo/tamper` | `{ type:"stored_file"\|"db_metadata"\|"restore", recordId }` | `{ ok:true, detail }` (demo only; `restore` undoes the record's latest tamper) | Archit |
+| `POST /api/demo/tamper` | `{ type:"stored_file"\|"db_metadata"\|"restore", recordId, field? }` | `{ ok:true, detail }` (demo only; `db_metadata` edits the issuer, or with `field` a document field such as `netPay` (+₹30,000); `restore` undoes the record's latest tamper) | Archit |
 | `POST /api/explain` | `{ verdict, checks }` (no document, no DB lookup) | `{ explanation, path:"ai"\|"template" }` | Mahendra |
 | `GET /api/audit-log` | — | `[ entry ]` newest first | Archit |
 
-**Record shape (API responses):** `{ recordId, fileHash, fileName, mime, status, docType, issuer, date, leaf, batchId, leafIndex, extractionPath, suggestions, warnings, createdBy, createdAt, confirmedBy, confirmedAt }`
+**Record shape (API responses):** `{ recordId, fileHash, fileName, mime, status, docType, issuer, date, fields:[{ name, label, value, display }], leaf, batchId, leafIndex, extractionPath, suggestions, warnings, createdBy, createdAt, confirmedBy, confirmedAt }`
 
 **SQLite schema (`server/src/db/schema.sql`):**
 
@@ -381,6 +436,15 @@ CREATE TABLE IF NOT EXISTS records (
   created_by TEXT, confirmed_by TEXT,
   created_at TEXT NOT NULL, confirmed_at TEXT
 );
+-- v2: each confirmed record's salted fields, the leaves of its field tree (fieldsRoot is rebuilt from these)
+CREATE TABLE IF NOT EXISTS record_fields (
+  record_id TEXT NOT NULL REFERENCES records(record_id),
+  idx       INTEGER NOT NULL,               -- position in the field tree (schema order), 0-based
+  name      TEXT NOT NULL,                  -- e.g. netPay
+  value     TEXT NOT NULL,                  -- normalised: amounts in paise, names uppercase, months YYYY-MM
+  salt      TEXT NOT NULL,                  -- 32 lowercase hex chars from crypto.randomBytes(16)
+  PRIMARY KEY (record_id, name)
+);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, actor TEXT,
   action TEXT NOT NULL,                     -- UPLOAD, CONFIRM, SEAL, PUBLISH, AUDIT, TAMPER, REJECT
@@ -396,7 +460,7 @@ AI suggests and explains; it never decides. Only human-confirmed metadata enters
 
 | AI task | Input | Output | Fallback when AI is off or fails |
 | --- | --- | --- | --- |
-| Metadata extraction | extracted text (first ~4,000 chars) | `{ docType, issuer, date }` + confidence 0–1 + the source line for each | Regex for dates (`DD/MM/YYYY`, `14 June 2026`, ISO); keyword map for docType; issuer = first line matching *University*, *Institute*, *College*, *Pvt Ltd*, *Limited* |
+| Metadata extraction | extracted text (first ~4,000 chars) | `{ docType, issuer, date, fields }` + confidence 0–1 + the source line for each (`fields` = every known document field the text states, values normalised by core) | Regex for dates (`DD/MM/YYYY`, `14 June 2026`, ISO); keyword map for docType; issuer = first line matching *University*, *Institute*, *College*, *Pvt Ltd*, *Limited*; fields = core `extractFields` (label rules) |
 | Failure explanation | verdict + checks (no file, no DB) | 2–3 plain sentences | Fixed template per result code |
 | Category suggestion (optional) | extracted text | one docType | keyword map |
 
@@ -404,6 +468,7 @@ AI suggests and explains; it never decides. Only human-confirmed metadata enters
 
 - Ask Gemini for **JSON only** with a fixed schema; validate it. Unparseable or invalid output = treat as failed and run the fallback.
 - `docType` must be one of the enum values; anything else becomes `OTHER` with low confidence.
+- A field value must be readable by core `normalizeFieldValue` and visible in its own evidence line (an amount's digits, a name, an id); otherwise it is dropped.
 - Every suggested value must quote the line it came from (`evidence`); a value with no evidence is dropped. The confirm screen shows that line next to the field.
 - Timeout 8 s. Store the raw suggestions and `extractionPath` in the record for audit.
 - `AI_MODE=off` forces the fallback, so we can show judges the system still works without AI.
@@ -504,9 +569,9 @@ Repo: https://github.com/mahendraSpatil/flanker-h4vortexa
 1. **Register:** upload a salary slip; show AI suggestions with evidence lines; correct one field; confirm. Mention `AI_MODE=off` still works.
 2. **Seal:** seal the batch; show the root and the transaction on the local chain.
 3. **Verify genuine:** open the separate verifier app, drop the PDF + proof.json → all checks green.
-4. **Forge:** drop the tampered copy (₹50,000 → ₹80,000) with the same proof → `DOCUMENT_MODIFIED`.
+4. **Forge:** drop the tampered copy (₹50,000 → ₹80,000) with the same proof → `DOCUMENT_MODIFIED`, and "What changed" shows **Net pay: registered ₹50,000, this document ₹80,000** (an explanation; the verdict still comes from the file hash).
 5. **Forge the proof too:** a proof.json with recomputed fileHash, leaf and root → passes 1–3, fails with `ROOT_MISMATCH`.
-6. **Insider attack:** Tamper panel edits the issuer in the DB → Audit flags the batch and the exact record; the verifier still rejects the forged document.
+6. **Insider attack:** Tamper panel edits the net pay (or issuer) in the DB → Audit flags the batch and the exact record; the verifier still rejects the forged document.
 7. **Close:** "Verification proves this exact file was registered here. It does not prove the contents are true."
 
 | PS B-01 requirement | Where we meet it |
@@ -516,7 +581,7 @@ Repo: https://github.com/mahendraSpatil/flanker-h4vortexa
 | Membership proof for every record | `proof.json` |
 | Roots stored where the registry cannot silently rewrite them | Write-once, publisher-only contract |
 | Independent verifier with only document + proof + root | Separate verifier app, pinned contract, no server URL |
-| Report which check failed | Result codes, checks 0–4 shown individually |
+| Report which check failed | Result codes, checks 0–4 shown individually; for a modified document, which field changed |
 | Detect modified document, invalid proof, stored record vs reference | Checks 1–4 + Audit |
 | Reject tampered document even if DB altered | Demo step 6 |
 | AI extracts metadata, person confirms, AI never affects verification | Confirm screen; AI not in hash path; fallback path |
@@ -564,8 +629,8 @@ One look across both apps, even though three people and two AI tools build them.
 | Spinner, EmptyState | loading and nothing-yet states |
 
 **Hero screens (spend polish here):**
-- **Verifier:** verdict banner (VALID or the failure code, plus one plain sentence), then the 7 checks as a vertical list with computed vs expected hashes (highlight the first differing character), then the Merkle path drawn as a chain from the leaf through each sibling up to the on-chain root.
-- **Confirm (registry):** document preview on the left (PDF in an iframe, image as img, text as pre); on the right one field per value showing the AI suggestion, a confidence bar, the quoted evidence line, and an "AI" or "Rules" tag for the extraction path.
+- **Verifier:** verdict banner (VALID or the failure code, plus one plain sentence), then for `DOCUMENT_MODIFIED` a "What changed" table (Field | Registered | In this document | Status; changed rows rose, unreadable rows slate; "Explanation only — the verdict comes from the file hash."), then the 8 checks as a vertical list with computed vs expected hashes (highlight the first differing character), a "Registered details" panel whenever check 2b passed, then the Merkle path drawn as a chain from the leaf through each sibling up to the on-chain root.
+- **Confirm (registry):** document preview on the left (PDF in an iframe, image as img, text as pre); on the right one field per value (metadata, then one input per document field of the chosen docType) showing the AI suggestion, a confidence bar, the quoted evidence line, and an "AI" or "Rules" tag for the extraction path. Required document fields block confirmation until filled.
 - **Audit:** one row per batch; MISMATCH rows in red listing changed records and files.
 - **Demo:** large labelled buttons per tamper type and restore, last result shown below.
 

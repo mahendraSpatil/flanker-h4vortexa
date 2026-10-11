@@ -12,6 +12,7 @@
   "dependencies": {
     "@proofchain/core": "*",
     "ethers": "^6.17.0",
+    "pdfjs-dist": "5.4.296",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

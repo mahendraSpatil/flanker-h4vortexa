@@ -112,7 +112,8 @@ export function fileHash(bytes, { normalization = FILE_NORMALIZATION.NONE } = {}
 /**
  * Check a record against the locked field rules. Does NOT reject future dates: that is the
  * server's rule at confirm time, so that verification never depends on today's date.
- * @param {{ recordId: string, fileHash: string, docType: string, issuer: string, date: string }} record
+ * A record with a fieldsRoot (any value but undefined) is v2 and needs it to be a 32-byte hash.
+ * @param {{ recordId: string, fileHash: string, fieldsRoot?: string, docType: string, issuer: string, date: string }} record
  * @returns {{ ok: boolean, errors: Object<string, string> }} errors maps field -> message
  */
 export function validateRecord(record) {
@@ -124,6 +125,9 @@ export function validateRecord(record) {
   if (!matches(HEX32, record.fileHash)) {
     errors.fileHash = 'must be 0x followed by 64 lowercase hex characters';
   }
+  if (record.fieldsRoot !== undefined && !matches(HEX32, record.fieldsRoot)) {
+    errors.fieldsRoot = 'must be 0x followed by 64 lowercase hex characters';
+  }
   if (!DOC_TYPES.includes(record.docType))
     errors.docType = `must be one of ${DOC_TYPES.join(', ')}`;
   const issuerProblem = checkIssuer(record.issuer);
@@ -134,8 +138,8 @@ export function validateRecord(record) {
 }
 
 /**
- * leaf = SHA-256(0x00 ‖ utf8(canonicalJSON(record))).
- * @param {{ recordId: string, fileHash: string, docType: string, issuer: string, date: string }} record
+ * leaf = SHA-256(0x00 ‖ utf8(canonicalJSON(record))). v2 when the record has a fieldsRoot.
+ * @param {{ recordId: string, fileHash: string, fieldsRoot?: string, docType: string, issuer: string, date: string }} record
  * @returns {string} "0x" + 64 lowercase hex chars
  * @throws {Error} code 'INVALID_RECORD' with `errors` from validateRecord
  */

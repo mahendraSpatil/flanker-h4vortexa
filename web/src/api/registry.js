@@ -36,10 +36,11 @@ export function getAuditLog() {
 
 /**
  * POST /api/demo/tamper. type: "stored_file" | "db_metadata" | "restore" -> { ok: true, detail }.
+ * db_metadata edits the issuer, or with `field` (e.g. "netPay") that document field.
  * "restore" undoes the record's latest tamper.
  */
-export function tamper({ type, recordId }) {
-  return request('/api/demo/tamper', { method: 'POST', json: { type, recordId } });
+export function tamper({ type, recordId, field }) {
+  return request('/api/demo/tamper', { method: 'POST', json: { type, recordId, field } });
 }
 
 /** POST /api/explain with a verify() result -> { explanation, path: "ai" | "template" }. */

@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 export default function Tamper() {
   const [records, setRecords] = useState([]);
   const [selectedRecordId, setSelectedRecordId] = useState('');
+  const [tamperField, setTamperField] = useState('issuer');
   const [loadingRecords, setLoadingRecords] = useState(true);
   const [tampering, setTampering] = useState(false);
   const [lastResult, setLastResult] = useState(null);
@@ -24,6 +25,7 @@ export default function Tamper() {
       setRecords(all || []);
       if (all && all.length > 0) {
         setSelectedRecordId(all[0].record_id || all[0].recordId);
+        setTamperField(all[0].fields?.some((f) => f.name === 'netPay') ? 'netPay' : 'issuer');
       }
     } catch {
       // Fallback
@@ -37,7 +39,8 @@ export default function Tamper() {
     setTampering(true);
     setError(null);
     try {
-      const res = await tamper({ type, recordId: selectedRecordId });
+      const field = type === 'db_metadata' ? tamperField : undefined;
+      const res = await tamper({ type, recordId: selectedRecordId, field });
       setLastResult({
         type,
         recordId: selectedRecordId,
@@ -54,6 +57,19 @@ export default function Tamper() {
   const selectedRecord = records.find(
     (r) => (r.record_id || r.recordId) === selectedRecordId,
   );
+  // The issuer, or one of the record's confirmed document fields (e.g. Net pay)
+  const fieldOptions = [
+    { name: 'issuer', label: 'Issuer' },
+    ...(selectedRecord?.fields ?? []).map(({ name, label }) => ({ name, label })),
+  ];
+  const fieldLabel = fieldOptions.find((f) => f.name === tamperField)?.label ?? 'Issuer';
+
+  function selectRecord(recordId) {
+    setSelectedRecordId(recordId);
+    // Default to Net pay when the record has one: the field-diff demo
+    const next = records.find((r) => (r.record_id || r.recordId) === recordId);
+    setTamperField(next?.fields?.some((f) => f.name === 'netPay') ? 'netPay' : 'issuer');
+  }
 
   return (
     <div className="space-y-6">
@@ -115,7 +131,7 @@ export default function Tamper() {
               <select
                 id="target-record"
                 value={selectedRecordId}
-                onChange={(e) => setSelectedRecordId(e.target.value)}
+                onChange={(e) => selectRecord(e.target.value)}
                 className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white font-mono text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               >
                 {records.map((r) => {
@@ -148,10 +164,25 @@ export default function Tamper() {
         {/* Action 1: Edit DB metadata */}
         <Card bodyClassName="p-5 flex flex-col justify-between h-full">
           <div className="space-y-2">
-            <h2 className="text-sm font-bold text-slate-900">Edit Issuer in Database</h2>
+            <h2 className="text-sm font-bold text-slate-900">Edit {fieldLabel} in Database</h2>
             <p className="text-xs text-slate-600 leading-relaxed">
               Simulates a malicious DB administrator quietly altering metadata on an anchored record.
             </p>
+            <label htmlFor="tamper-field" className="block text-xs font-semibold text-slate-700">
+              Value to edit
+            </label>
+            <select
+              id="tamper-field"
+              value={tamperField}
+              onChange={(e) => setTamperField(e.target.value)}
+              className="w-full h-9 px-2 rounded-lg border border-slate-300 bg-white text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+            >
+              {fieldOptions.map((f) => (
+                <option key={f.name} value={f.name}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
             <div className="p-2.5 rounded bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
               <div className="font-semibold text-slate-800">Expected Effect:</div>
               <div>• Audit detects DB root ≠ on-chain root (MISMATCH).</div>
@@ -167,7 +198,7 @@ export default function Tamper() {
               onClick={() => handleTamper('db_metadata')}
               className="w-full"
             >
-              Edit Issuer
+              Edit {fieldLabel}
             </Button>
           </div>
         </Card>
@@ -290,7 +321,7 @@ export default function Tamper() {
                 </span>
               </li>
               <li>
-                <span className="font-semibold text-slate-900">Insider attack:</span> edit issuer in DB → Audit flags{' '}
+                <span className="font-semibold text-slate-900">Insider attack:</span> edit net pay (or issuer) in DB → Audit flags{' '}
                 <span className="font-mono font-bold text-rose-700 bg-rose-50 px-1 rounded">
                   MISMATCH
                 </span>

@@ -12,5 +12,8 @@
   },
   "dependencies": {
     "@noble/hashes": "^2.4.0"
+  },
+  "devDependencies": {
+    "pdfjs-dist": "5.4.296"
   }
 }

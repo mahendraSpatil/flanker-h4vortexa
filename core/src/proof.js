@@ -1,10 +1,18 @@
 // Owner: Archit | Assemble proof.json for one anchored record (shape locked in CLAUDE.md "proof.json")
 import { normText } from './canonical.js';
-import { BATCH_ID, FILE_NORMALIZATION, HEX32, SCHEME } from './constants.js';
+import {
+  BATCH_ID,
+  FIELD_SCHEME,
+  FILE_NORMALIZATION,
+  HEX32,
+  PROOF_VERSIONS,
+  SCHEME,
+} from './constants.js';
+import { buildFieldTree, validateFields } from './fields.js';
 import { leafHash, validateRecord } from './hash.js';
 import { expectedPathLength, expectedPositions, foldProof } from './merkle.js';
 
-// Key order of every object in proof.json, as in CLAUDE.md
+// Key order of every object in proof.json, as in CLAUDE.md. v2 adds fieldsRoot and fields.
 const PROOF_KEYS = [
   'v',
   'scheme',
@@ -20,6 +28,7 @@ const PROOF_KEYS = [
   'anchor',
   'issuedAt',
 ];
+const PROOF_KEYS_V2 = PROOF_KEYS.toSpliced(PROOF_KEYS.indexOf('leaf'), 0, 'fieldsRoot', 'fields');
 const SCHEME_KEYS = ['hash', 'leafPrefix', 'nodePrefix', 'canonicalization', 'oddNode'];
 const METADATA_KEYS = ['docType', 'issuer', 'date'];
 const SIBLING_KEYS = ['hash', 'pos'];
@@ -37,11 +46,15 @@ const HEX32_MESSAGE = 'must be 0x followed by 64 lowercase hex characters';
  * never issues a proof that a correct verifier would reject.
  *
  * Output fields, in order: v, scheme { hash, leafPrefix, nodePrefix, canonicalization, oddNode,
- * fileNormalization }, recordId, metadata { docType, issuer, date }, fileHash, leaf, batchId,
- * leafIndex, leafCount, siblings, root, anchor, issuedAt (ISO 8601 UTC).
+ * fileNormalization }, recordId, metadata { docType, issuer, date }, fileHash, [fieldsRoot,
+ * fields: v2 only], leaf, batchId, leafIndex, leafCount, siblings, root, anchor, issuedAt (ISO 8601 UTC).
+ *
+ * With `fields` the proof is v2: fieldsRoot = buildFieldTree(fields).root goes into the record
+ * (a record.fieldsRoot, if given, must equal it). Without `fields` it is v1, as before field trees.
  *
  * @param {object} args
- * @param {{ recordId: string, fileHash: string, docType: string, issuer: string, date: string }} args.record confirmed record
+ * @param {{ recordId: string, fileHash: string, fieldsRoot?: string, docType: string, issuer: string, date: string }} args.record confirmed record
+ * @param {Array<{ name: string, value: string, salt: string }>} [args.fields] normalised, salted, in schema order
  * @param {string} args.batchId e.g. "BATCH-0007"
  * @param {number} args.leafIndex
  * @param {number} args.leafCount
@@ -55,6 +68,7 @@ const HEX32_MESSAGE = 'must be 0x followed by 64 lowercase hex characters';
  */
 export function buildProof({
   record,
+  fields,
   batchId,
   leafIndex,
   leafCount,
@@ -64,9 +78,10 @@ export function buildProof({
   fileNormalization,
   issuedAt = new Date().toISOString(),
 }) {
-  const leaf = leafHash(record);
+  const leafRecord = fields === undefined ? v1Record(record) : withFieldsRoot(record, fields);
+  const leaf = leafHash(leafRecord);
   const proof = {
-    v: SCHEME.v,
+    v: fields === undefined ? SCHEME.v : FIELD_SCHEME.v,
     scheme: {
       hash: SCHEME.hash,
       leafPrefix: SCHEME.leafPrefix,
@@ -78,6 +93,12 @@ export function buildProof({
     recordId: record.recordId,
     metadata: { docType: record.docType, issuer: normText(record.issuer), date: record.date },
     fileHash: record.fileHash,
+    ...(fields === undefined
+      ? {}
+      : {
+          fieldsRoot: leafRecord.fieldsRoot,
+          fields: fields.map(({ name, value, salt }) => ({ name, value, salt })),
+        }),
     leaf,
     batchId,
     leafIndex,
@@ -108,10 +129,29 @@ export function buildProof({
   return proof;
 }
 
+// A record with a fieldsRoot must come with its fields, or the proof would not rebuild its leaf
+function v1Record(record) {
+  if (record?.fieldsRoot !== undefined) {
+    throw invalidProof({ fields: 'are required for a record with a fieldsRoot (v2)' });
+  }
+  return record;
+}
+
+function withFieldsRoot(record, fields) {
+  const { ok, errors } = validateFields(record?.docType, fields);
+  if (!ok) throw invalidProof(errors);
+  const { root } = buildFieldTree(fields);
+  if (record?.fieldsRoot !== undefined && record.fieldsRoot !== root) {
+    throw invalidProof({ fieldsRoot: 'is not the root of fields' });
+  }
+  return { ...record, fieldsRoot: root };
+}
+
 /**
- * Structural check of a parsed proof.json (verification check 0): exact keys at every level,
- * v and scheme equal ours, metadata passes validateRecord with the issuer already normalised,
- * hex formats, 0 <= leafIndex < leafCount, and siblings.length === expectedPathLength.
+ * Structural check of a parsed proof.json (verification check 0): exact keys at every level
+ * (v2 adds fieldsRoot and fields), v and scheme equal ours, metadata passes validateRecord with
+ * the issuer already normalised, hex formats, 0 <= leafIndex < leafCount, siblings.length ===
+ * expectedPathLength, and for v2 the fields fit the docType's schema (validateFields).
  * Never throws, whatever the input.
  * @param {unknown} proof
  * @returns {{ ok: boolean, errors: Object<string, string> }} errors maps a path such as
@@ -124,10 +164,11 @@ export function validateProof(proof) {
   const fail = (path, message) => {
     if (!errors.has(path)) errors.set(path, message);
   };
-  checkKeys(proof, PROOF_KEYS, '', fail);
-  if (proof.v !== SCHEME.v) fail('v', `must be ${SCHEME.v}`);
+  const isV2 = proof.v === FIELD_SCHEME.v;
+  checkKeys(proof, isV2 ? PROOF_KEYS_V2 : PROOF_KEYS, '', fail);
+  if (!PROOF_VERSIONS.includes(proof.v)) fail('v', `must be one of ${PROOF_VERSIONS.join(', ')}`);
   checkScheme(proof.scheme, fail);
-  checkRecordFields(proof, fail);
+  checkRecordFields(proof, isV2, fail);
   if (!isHex32(proof.leaf)) fail('leaf', HEX32_MESSAGE);
   if (!isHex32(proof.root)) fail('root', HEX32_MESSAGE);
   if (typeof proof.batchId !== 'string' || !BATCH_ID.test(proof.batchId)) {
@@ -155,21 +196,26 @@ function checkScheme(scheme, fail) {
   }
 }
 
-// recordId, fileHash and metadata are exactly the record that went into the leaf
-function checkRecordFields(proof, fail) {
+// recordId, fileHash, metadata (and fieldsRoot in v2) are exactly the record that went into the leaf
+function checkRecordFields(proof, isV2, fail) {
   const metadata = isObject(proof.metadata) ? proof.metadata : null;
   if (metadata) checkKeys(metadata, METADATA_KEYS, 'metadata.', fail);
   else fail('metadata', 'must be an object');
   const { errors } = validateRecord({
     recordId: proof.recordId,
     fileHash: proof.fileHash,
+    ...(isV2 ? { fieldsRoot: proof.fieldsRoot ?? null } : {}),
     docType: metadata?.docType,
     issuer: metadata?.issuer,
     date: metadata?.date,
   });
   for (const [field, message] of Object.entries(errors)) {
-    if (field === 'recordId' || field === 'fileHash') fail(field, message);
+    if (['recordId', 'fileHash', 'fieldsRoot'].includes(field)) fail(field, message);
     else if (metadata) fail(`metadata.${field}`, message);
+  }
+  if (isV2) {
+    const fieldCheck = validateFields(metadata?.docType, proof.fields);
+    for (const [path, message] of Object.entries(fieldCheck.errors)) fail(path, message);
   }
   // Display shows exactly the hashed value, so it must already be in canonical form
   if (metadata && !errors.issuer && metadata.issuer !== normText(metadata.issuer)) {

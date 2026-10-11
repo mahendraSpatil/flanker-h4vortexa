@@ -1,12 +1,13 @@
 // Owner: Archit | Independent verification: checks 0-4 over file + proof + on-chain batch
-import { CHECK_RESULT, HEX32, RESULT } from './constants.js';
-import { fileHash, leafHash } from './hash.js';
+import { CHECK_RESULT, FIELD_SCHEME, FILE_NORMALIZATION, HEX32, RESULT } from './constants.js';
+import { buildFieldTree, describeFields, diffFields, extractFields } from './fields.js';
+import { fileHash, leafHash, normalizeTextFile } from './hash.js';
 import { expectedPositions, foldProof } from './merkle.js';
 import { validateProof } from './proof.js';
 
 /**
  * @typedef {object} Check
- * @property {string} id '0' | '0b' | '1' | '2' | '3' | '4a' | '4b'
+ * @property {string} id '0' | '0b' | '1' | '2' | '2b' | '3' | '4a' | '4b'
  * @property {string} name human-readable check name, e.g. "File hash"
  * @property {boolean | null} pass null when the check was skipped
  * @property {string | null} computed value the verifier computed ('0b', '4b': the value proof.json claims)
@@ -20,12 +21,20 @@ const CHECKS = [
   ['0b', 'Registry'],
   ['1', 'File hash'],
   ['2', 'Leaf'],
+  ['2b', 'Field values match fieldsRoot'],
   ['3', 'Merkle path'],
   ['4a', 'Batch published'],
   ['4b', 'Root'],
 ];
 const ZERO_ROOT = '0x' + '0'.repeat(64);
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
+/** fieldDiff.reason when there is no text to read fields from (an image, a scan). */
+export const FIELD_DIFF_NEEDS_TEXT =
+  'field comparison needs a PDF with selectable text or a .txt file';
+/** fieldDiff.note when the bytes differ but every registered field reads the same. */
+export const FIELD_DIFF_CONTENT_MATCH =
+  'File differs from the registered original, but every registered field matches (content match, not proof).';
 
 /**
  * Run every check and report the first failure as the verdict. Pure and synchronous; never talks
@@ -34,19 +43,29 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
  * itself is misconfigured, which is a programming error.
  *
  * Check '0' gates everything: if it fails, every later check is skipped (pass null). Checks
- * '0b' to '4a' are independent and all run; '4b' is skipped when '4a' fails.
+ * '0b' to '4a' are independent and all run; '2b' is skipped for v1 proofs (no field tree) and
+ * '4b' is skipped when '4a' fails.
+ *
+ * Fields never decide the verdict. When check 2b passes, `registeredFields` lists the values the
+ * proof commits to. When a v2 verdict is DOCUMENT_MODIFIED, `fieldDiff` compares them with the
+ * values read from the file's text: an explanation shown beside the verdict, nothing more.
  *
  * @param {object} args
  * @param {Uint8Array} args.fileBytes raw bytes of the uploaded document
  * @param {unknown} args.proof parsed proof.json (every field untrusted)
  * @param {{ root: string, leafCount: number } | null} args.chainBatch on-chain batch; null or a zero root = unpublished
  * @param {{ chainId: number, contract: string }} args.pinned verifier's own pinned registry
- * @returns {{ verdict: string, checks: Check[], computed: { fileHash: string|null, leaf: string|null, root: string|null } }}
+ * @param {string | null} [args.fileText] text of the uploaded file (a PDF's text layer), used only
+ *   for fieldDiff; a text-v1 (.txt) file is decoded here, so callers need not pass it
+ * @returns {{ verdict: string, checks: Check[], computed: { fileHash: string|null, leaf: string|null, root: string|null },
+ *   registeredFields?: Array<{ name: string, label: string, value: string, display: string }>,
+ *   fieldDiff?: { available: boolean, reason?: string, fields: Array<{ name: string, label: string,
+ *     registered: string, found: string|null, status: 'match'|'changed'|'unreadable' }>, note?: string } }}
  *   verdict is CHECK_RESULT[id] of the first failing check, else VALID. `computed` is recomputed
  *   from the actual file (leaf from its hash, root by folding that leaf), for display.
  * @throws {TypeError} when pinned is not { chainId: positive integer, contract: 0x address }
  */
-export function verify({ fileBytes, proof, chainBatch, pinned } = {}) {
+export function verify({ fileBytes, proof, chainBatch, pinned, fileText = null } = {}) {
   const registry = readPinned(pinned);
   const { results, computed } = runChecks(fileBytes, proof, readChainBatch(chainBatch), registry);
   const checks = CHECKS.map(([id, name]) => ({
@@ -59,7 +78,12 @@ export function verify({ fileBytes, proof, chainBatch, pinned } = {}) {
     ...results[id],
   }));
   const failed = checks.find((check) => check.pass === false);
-  return { verdict: failed ? CHECK_RESULT[failed.id] : RESULT.VALID, checks, computed };
+  const result = { verdict: failed ? CHECK_RESULT[failed.id] : RESULT.VALID, checks, computed };
+  if (results['2b']?.pass === true) result.registeredFields = describeFields(proof.fields);
+  if (result.verdict === RESULT.DOCUMENT_MODIFIED && proof.v === FIELD_SCHEME.v) {
+    result.fieldDiff = explainFileChange(checks, proof, fileBytes, fileText);
+  }
+  return result;
 }
 
 function runChecks(fileBytes, proof, chain, registry) {
@@ -76,6 +100,10 @@ function runChecks(fileBytes, proof, chain, registry) {
       '0b': checkRegistry(proof.anchor, registry),
       1: file,
       2: checkLeaf(proof),
+      '2b':
+        proof.v === FIELD_SCHEME.v
+          ? checkFields(proof)
+          : skip('v1 proofs carry no field values (check 2b is for v2 proofs)'),
       3: checkPath(proof),
       '4a': checkPublished(chain, proof.batchId),
       '4b': chain ? checkRoot(proof, chain) : skip('the batch has no root on chain (check 4a)'),
@@ -141,13 +169,29 @@ function checkFile(fileBytes, proof) {
 function checkLeaf(proof) {
   const computed = leafHash(recordOf(proof, proof.fileHash));
   const pass = computed === proof.leaf;
+  const parts = proof.v === FIELD_SCHEME.v ? 'fileHash, fieldsRoot' : 'fileHash';
   return {
     pass,
     computed,
     expected: proof.leaf,
     detail: pass
-      ? 'recordId, fileHash and metadata rebuild proof.leaf.'
-      : 'recordId, fileHash or metadata in proof.json do not rebuild proof.leaf.',
+      ? `recordId, ${parts} and metadata rebuild proof.leaf.`
+      : `recordId, ${parts} or metadata in proof.json do not rebuild proof.leaf.`,
+  };
+}
+
+// The disclosed values must be exactly the ones committed to by the record's fieldsRoot
+function checkFields(proof) {
+  const computed = buildFieldTree(proof.fields).root;
+  const pass = computed === proof.fieldsRoot;
+  const count = proof.fields.length;
+  return {
+    pass,
+    computed,
+    expected: proof.fieldsRoot,
+    detail: pass
+      ? `The ${count} field value(s) in proof.fields rebuild fieldsRoot.`
+      : 'The field values in proof.fields do not rebuild fieldsRoot.',
   };
 }
 
@@ -201,7 +245,44 @@ function recompute(actualFileHash, proof) {
 
 function recordOf(proof, hash) {
   const { docType, issuer, date } = proof.metadata;
-  return { recordId: proof.recordId, fileHash: hash, docType, issuer, date };
+  const record = { recordId: proof.recordId, fileHash: hash, docType, issuer, date };
+  return proof.v === FIELD_SCHEME.v ? { ...record, fieldsRoot: proof.fieldsRoot } : record;
+}
+
+// Explanation of a DOCUMENT_MODIFIED: which registered fields the file still shows, and which not
+function explainFileChange(checks, proof, fileBytes, fileText) {
+  const untrusted = checks.find((check) => check.id !== '1' && check.pass !== true);
+  if (untrusted) {
+    return unavailable(
+      `the proof itself failed check ${untrusted.id}, so its field values are not known to be registered`,
+    );
+  }
+  if (proof.fields.length === 0) {
+    return unavailable(`no fields are registered for ${proof.metadata.docType}`);
+  }
+  const text =
+    typeof fileText === 'string' && fileText.trim() !== ''
+      ? fileText
+      : textFileOf(fileBytes, proof);
+  if (text === null) return unavailable(FIELD_DIFF_NEEDS_TEXT);
+  const fields = diffFields(proof.fields, extractFields(proof.metadata.docType, text));
+  return fields.every((row) => row.status === 'match')
+    ? { available: true, fields, note: FIELD_DIFF_CONTENT_MATCH }
+    : { available: true, fields };
+}
+
+// A text-v1 file is its own text; anything else needs the caller's extracted text
+function textFileOf(fileBytes, proof) {
+  if (proof.scheme.fileNormalization !== FILE_NORMALIZATION.TEXT_V1) return null;
+  try {
+    return new TextDecoder().decode(normalizeTextFile(fileBytes));
+  } catch {
+    return null;
+  }
+}
+
+function unavailable(reason) {
+  return { available: false, reason, fields: [] };
 }
 
 // null unless the chain returned a well-formed, non-zero root (fail closed)

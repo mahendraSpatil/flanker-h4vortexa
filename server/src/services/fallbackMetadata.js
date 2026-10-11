@@ -3,9 +3,11 @@
 // Runs whenever AI_MODE=off, Gemini fails, or Gemini returns nothing usable. Every suggestion carries
 // the exact source line it came from (evidence); a value without evidence is never suggested.
 // Confidences are deliberately modest: these are heuristics and a person confirms every field.
-import { normText } from '@proofchain/core';
+import { FIELD_SCHEMAS, extractFieldsWithEvidence, normText } from '@proofchain/core';
 
 const MAX_LINES = 400;
+/** A value read right after its own label (e.g. "Net Pay ₹ 50,000") is a strong but unconfirmed match. */
+const LABELLED_FIELD_CONFIDENCE = 0.75;
 const MAX_EVIDENCE_CHARS = 200;
 const ISSUER_MAX_CHARS = 120;
 /** Issuers are near the top of a document (letterhead); lines below this are a weaker match. */
@@ -39,6 +41,28 @@ export function suggestMetadataByRules(text, { today = localIsoDate(new Date()) 
     result.evidence[found.field] = evidenceOf(found.line);
   }
   return result;
+}
+
+/**
+ * Suggest document fields (net pay, employee name, ...) without AI, with core's label-based
+ * extractFieldsWithEvidence. Every docType's fields are read, so the confirm screen can prefill
+ * them whichever docType the person picks. Values are normalised (amounts in paise).
+ * @param {string} text extracted document text
+ * @returns {{ [name: string]: { value: string, confidence: number, evidence: string } }} only fields found
+ */
+export function suggestFieldsByRules(text) {
+  const suggestions = {};
+  for (const docType of Object.keys(FIELD_SCHEMAS)) {
+    for (const [name, hit] of Object.entries(extractFieldsWithEvidence(docType, text))) {
+      if (!hit || suggestions[name]) continue;
+      suggestions[name] = {
+        value: hit.value,
+        confidence: LABELLED_FIELD_CONFIDENCE,
+        evidence: evidenceOf(hit.evidence),
+      };
+    }
+  }
+  return suggestions;
 }
 
 /** Split text into trimmed, whitespace-collapsed, non-empty lines. */

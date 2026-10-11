@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { after, before, describe, it } from 'node:test';
-import { HEX32, verify } from '@proofchain/core';
+import { HEX32, buildFieldTree, verify } from '@proofchain/core';
 import { ZeroHash } from 'ethers';
 import { chainSkipReason, prepareTestEnv, resetChainAndDeploy, startServer } from './helpers.js';
 
@@ -28,6 +28,7 @@ function fixture(n) {
       docType: 'MARKSHEET',
       issuer: '  Northfield   College of Engineering ',
       date,
+      fields: { studentName: `Student ${String.fromCharCode(64 + n)}`, seatNumber: `nce-${n}` },
     };
   }
   if (n % 3 === 2) {
@@ -47,6 +48,12 @@ function fixture(n) {
     docType: 'SALARY_SLIP',
     issuer: 'Acme Analytics Pvt Ltd',
     date,
+    fields: {
+      employeeName: 'Riya Sharma',
+      payPeriod: 'June 2026',
+      grossPay: '56,500',
+      netPay: '50,000',
+    },
   };
 }
 
@@ -60,6 +67,10 @@ describe('server API on a live chain', { skip: skipReason ?? false }, () => {
   const batchAudit = (result, batchId) => result.batches.find((b) => b.batchId === batchId);
   const issuerOf = (recordId) =>
     t.db.prepare('SELECT issuer FROM records WHERE record_id = ?').pluck().get(recordId);
+  const fieldsOf = (recordId) =>
+    t.db
+      .prepare('SELECT name, value, salt FROM record_fields WHERE record_id = ? ORDER BY idx')
+      .all(recordId);
 
   async function verifyStored(record, proof) {
     return verify({
@@ -289,6 +300,97 @@ describe('server API on a live chain', { skip: skipReason ?? false }, () => {
     assert.ok((await audit()).batches.every((b) => b.status === 'OK'));
   });
 
+  it('proof.json is v2: it carries the salted fields stored at confirm, and they rebuild fieldsRoot', async () => {
+    const slip = records[2];
+    const { proof } = proofs.get(slip.recordId);
+    assert.equal(proof.v, 2);
+    assert.deepEqual(proof.fields, fieldsOf(slip.recordId));
+    assert.deepEqual(
+      proof.fields.map((f) => [f.name, f.value]),
+      [
+        ['employeeName', 'RIYA SHARMA'],
+        ['payPeriod', '2026-06'],
+        ['grossPay', '5650000'],
+        ['netPay', '5000000'],
+      ],
+    );
+    assert.ok(proof.fields.every((f) => /^[0-9a-f]{32}$/.test(f.salt)));
+    assert.equal(proof.fieldsRoot, buildFieldTree(proof.fields).root);
+    const result = await verifyStored(slip, proof);
+    assert.equal(result.verdict, 'VALID');
+    assert.equal(result.registeredFields.find((f) => f.name === 'netPay').display, '₹50,000');
+    // A record type without fields still commits to the empty field root
+    assert.deepEqual(proofs.get(records[1].recordId).proof.fields, []);
+  });
+
+  it('db_metadata tamper of a field (netPay): proof refuses, audit names the record, restore undoes it', async () => {
+    const slip = records[2];
+    const res = await t.api('POST', '/api/demo/tamper', {
+      type: 'db_metadata',
+      recordId: slip.recordId,
+      field: 'netPay',
+    });
+    assert.equal(res.status, 200, res.text);
+    assert.deepEqual(
+      [res.body.detail.field, res.body.detail.original, res.body.detail.tampered],
+      ['netPay', '5000000', '8000000'],
+    );
+    assert.equal(fieldsOf(slip.recordId).find((f) => f.name === 'netPay').value, '8000000');
+
+    const proof = await t.api('GET', `/api/documents/${slip.recordId}/proof`);
+    assert.equal(proof.status, 409);
+    assert.equal(proof.body.error, 'RECORD_INTEGRITY_FAILED');
+
+    const batch1 = batchAudit(await audit(), 'BATCH-0001');
+    assert.equal(batch1.status, 'MISMATCH');
+    assert.deepEqual(batch1.changedRecords, [slip.recordId]);
+    assert.deepEqual(batch1.changedFiles, []);
+    assert.notEqual(batch1.dbRoot, batch1.chainRoot);
+
+    // The verifier never reads the DB: the genuine proof still passes, the DB's value cannot
+    const { proof: genuine } = proofs.get(slip.recordId);
+    assert.equal((await verifyStored(slip, genuine)).verdict, 'VALID');
+    const forged = structuredClone(genuine);
+    forged.fields.find((f) => f.name === 'netPay').value = res.body.detail.tampered;
+    assert.equal((await verifyStored(slip, forged)).verdict, 'PROOF_INVALID');
+
+    const restore = await t.api('POST', '/api/demo/tamper', {
+      type: 'restore',
+      recordId: slip.recordId,
+    });
+    assert.equal(restore.status, 200, restore.text);
+    assert.deepEqual([restore.body.detail.field, restore.body.detail.value], ['netPay', '5000000']);
+    const again = await t.api('GET', `/api/documents/${slip.recordId}/proof`);
+    assert.equal(again.text, proofs.get(slip.recordId).text);
+    assert.ok((await audit()).batches.every((b) => b.status === 'OK'));
+  });
+
+  it('audit catches a direct DB edit of a field value or salt, and a field tamper on a missing field is refused', async () => {
+    const target = records[0]; // .txt marksheet
+    const edit = t.db.prepare(
+      'UPDATE record_fields SET value = ? WHERE record_id = ? AND name = ?',
+    );
+    edit.run('SOMEONE ELSE', target.recordId, 'studentName');
+    const batch1 = batchAudit(await audit(), 'BATCH-0001');
+    assert.equal(batch1.status, 'MISMATCH');
+    assert.deepEqual(batch1.changedRecords, [target.recordId]);
+    edit.run(target.fields[0].value, target.recordId, 'studentName');
+
+    const salt = t.db.prepare('UPDATE record_fields SET salt = ? WHERE record_id = ? AND name = ?');
+    salt.run('0'.repeat(32), target.recordId, 'seatNumber');
+    assert.deepEqual(batchAudit(await audit(), 'BATCH-0001').changedRecords, [target.recordId]);
+    salt.run(target.fields[1].salt, target.recordId, 'seatNumber');
+    assert.ok((await audit()).batches.every((b) => b.status === 'OK'));
+
+    const missing = await t.api('POST', '/api/demo/tamper', {
+      type: 'db_metadata',
+      recordId: records[1].recordId, // a degree certificate registered without fields
+      field: 'netPay',
+    });
+    assert.equal(missing.status, 400);
+    assert.equal(missing.body.error, 'VALIDATION');
+  });
+
   it('rejects an unknown tamper type or record', async () => {
     const badType = await t.api('POST', '/api/demo/tamper', {
       type: 'chain',
@@ -304,6 +406,58 @@ describe('server API on a live chain', { skip: skipReason ?? false }, () => {
     });
     assert.equal(unknown.status, 404);
     assert.equal(unknown.body.error, 'NOT_FOUND');
+  });
+
+  it('upload + confirm through the API: rules suggest the fields, confirm stores them salted', async () => {
+    const text =
+      'PAY SLIP\r\nAcme Analytics Pvt Ltd\r\nEmployee name: Kabir Shah\r\nPay period: July 2026\r\nNet pay: Rs 41,000/-\r\n';
+    const form = new FormData();
+    form.append('file', new Blob([text]), 'slip-api.txt');
+    const res = await fetch(`${t.baseUrl}/api/documents`, {
+      method: 'POST',
+      headers: { 'X-Actor': 'server-test' },
+      body: form,
+    });
+    const uploaded = await res.json();
+    assert.equal(res.status, 201, JSON.stringify(uploaded));
+    assert.equal(uploaded.extractionPath, 'fallback'); // AI_MODE=off in tests
+    assert.equal(uploaded.suggestions.fields.netPay.value, '4100000');
+    assert.equal(uploaded.suggestions.fields.netPay.evidence, 'Net pay: Rs 41,000/-');
+
+    const confirm = await t.api('POST', `/api/documents/${uploaded.recordId}/confirm`, {
+      docType: 'SALARY_SLIP',
+      issuer: 'Acme Analytics Pvt Ltd',
+      date: '2026-07-31',
+      fields: { netPay: '41,000', payPeriod: 'July 2026', employeeName: 'Kabir Shah' },
+    });
+    assert.equal(confirm.status, 200, confirm.text);
+    const stored = fieldsOf(uploaded.recordId);
+    assert.deepEqual(
+      stored.map((f) => [f.name, f.value]),
+      [
+        ['employeeName', 'KABIR SHAH'],
+        ['payPeriod', '2026-07'],
+        ['netPay', '4100000'],
+      ],
+    );
+    assert.ok(stored.every((f) => /^[0-9a-f]{32}$/.test(f.salt)));
+    assert.match(
+      confirm.body.canonical,
+      new RegExp(`"fieldsRoot":"${buildFieldTree(stored).root}"`),
+    );
+    assert.match(confirm.body.canonical, /"v":2}$/);
+
+    const missing = await t.api('POST', `/api/documents/${uploaded.recordId}/confirm`, {
+      docType: 'SALARY_SLIP',
+      issuer: 'Acme Analytics Pvt Ltd',
+      date: '2026-07-31',
+      fields: { employeeName: 'Kabir Shah' },
+    });
+    assert.equal(missing.status, 400);
+    assert.deepEqual(Object.keys(missing.body.details.fields).sort(), [
+      'fields.netPay',
+      'fields.payPeriod',
+    ]);
   });
 
   it('serialises seals: a concurrent seal gets SEAL_IN_PROGRESS', async () => {

@@ -1,16 +1,19 @@
 // Owner: Mahendra | Input rules for documents: upload sniffing, confirm-field validation, list filters, core bridge
 //
 // Pure functions only (no DB, no Express), so they are unit-testable without server/.env.
+import crypto from 'node:crypto';
 import {
   BATCH_ID,
   DOC_TYPES,
   ISSUER_MAX_LENGTH,
   RECORD_ID,
+  buildFieldTree,
   canonicalJSON,
   detectNormalization,
   fileHash,
   leafHash,
   normText,
+  normalizeFields,
   validateRecord,
 } from '@proofchain/core';
 import { AppError } from '../lib/errors.js';
@@ -130,11 +133,16 @@ export function sanitizeFileName(name) {
 /**
  * Validate confirmed fields with core's validateRecord (locked formats) plus the future-date rule,
  * which core deliberately leaves to the server so that verification never depends on today's date.
+ * Document fields (e.g. netPay) are normalised with core's normalizeFields for the chosen docType,
+ * in schema order; their errors are keyed "fields.<name>".
  * Error messages are fragments ("is required", "must be YYYY-MM-DD") to read after the field label.
  * @param {{ recordId: string, fileHash: string }} stored the draft's recordId and fileHash
- * @param {unknown} body request body { docType, issuer, date }
+ * @param {unknown} body request body { docType, issuer, date, fields?: { [name]: value as typed } }
+ *   (amounts in rupees, e.g. "50,000")
  * @param {{ today: string }} options today's local date, YYYY-MM-DD
- * @returns {{ record: object | null, errors: Record<string, string> }} record is ready for leafHash
+ * @returns {{ record: object | null, fields: Array<{ name: string, value: string }>,
+ *   errors: Record<string, string> }} record (without fieldsRoot) and normalised fields; record is
+ *   null when there are errors
  */
 export function validateConfirmFields(stored, body, { today }) {
   const input = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
@@ -148,8 +156,35 @@ export function validateConfirmFields(stored, body, { today }) {
 
   const { errors } = validateRecord(record);
   if (!errors.date && record.date > today) errors.date = 'must not be in the future';
-  if (Object.keys(errors).length > 0) return { record: null, errors };
-  return { record, errors };
+  const fields = errors.docType ? [] : readDocumentFields(record.docType, input.fields, errors);
+  if (Object.keys(errors).length > 0) return { record: null, fields: [], errors };
+  return { record, fields, errors };
+}
+
+// Fields are checked only once the docType is known, since the docType decides which fields exist
+function readDocumentFields(docType, raw, errors) {
+  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) {
+    errors.fields = 'must be an object of field values';
+    return [];
+  }
+  const { fields, errors: fieldErrors } = normalizeFields(docType, raw ?? {});
+  for (const [name, message] of Object.entries(fieldErrors)) errors[`fields.${name}`] = message;
+  return fields;
+}
+
+/** 16 random bytes as 32 lowercase hex characters: one per field, so values cannot be guessed from leaves. */
+export function randomSalt() {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+/**
+ * Give each normalised field its own fresh salt.
+ * @param {Array<{ name: string, value: string }>} fields
+ * @param {() => string} [salt] test seam
+ * @returns {Array<{ name: string, value: string, salt: string }>}
+ */
+export function saltFields(fields, salt = randomSalt) {
+  return fields.map(({ name, value }) => ({ name, value, salt: salt() }));
 }
 
 // ---- list filters -------------------------------------------------------------------------------
@@ -223,9 +258,16 @@ export function hashUpload(buffer, { fileName, mime }) {
 }
 
 /**
- * Canonical record + leaf for a confirmed record, both from core (never re-implemented here).
+ * v2 canonical record + leaf for a confirmed record and its salted fields, all from core (never
+ * re-implemented here): fieldsRoot = root of the field tree, then leaf over the record with it.
  * Call only after validateConfirmFields returned no errors.
+ * @returns {{ fieldsRoot: string, canonical: string, leaf: string }}
  */
-export function buildLeaf(record) {
-  return { canonical: canonicalJSON(record), leaf: leafHash(record) };
+export function buildLeaf(record, saltedFields) {
+  const withRoot = { ...record, fieldsRoot: buildFieldTree(saltedFields).root };
+  return {
+    fieldsRoot: withRoot.fieldsRoot,
+    canonical: canonicalJSON(withRoot),
+    leaf: leafHash(withRoot),
+  };
 }

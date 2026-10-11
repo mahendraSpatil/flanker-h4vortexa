@@ -91,6 +91,7 @@ test('locked enums match CLAUDE.md', () => {
     '0b': 'REGISTRY_MISMATCH',
     1: 'DOCUMENT_MODIFIED',
     2: 'METADATA_MODIFIED',
+    '2b': 'PROOF_INVALID',
     3: 'PROOF_INVALID',
     '4a': 'BATCH_NOT_PUBLISHED',
     '4b': 'ROOT_MISMATCH',

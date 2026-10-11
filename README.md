@@ -65,8 +65,8 @@ Run each of these in its own terminal, in this order:
 | 1. Local chain | `npm run chain` | http://127.0.0.1:8545 |
 | 2. Deploy contract (once per fresh chain) | `npm run deploy` | writes `shared/deployment.json` |
 | 3. API server | `npm run server` | http://localhost:4000/api/health |
-| 4. Registry app | `npm run web` | http://localhost:5173 |
-| 5. Verifier app | `npm run verifier` | http://localhost:5174 |
+| 4. Registry app | `npm run web` | http://localhost:5273 |
+| 5. Verifier app | `npm run verifier` | http://localhost:5274 |
 | 6. Demo data (optional) | `npm run seed` | uploads, confirms and seals the samples |
 
 **`server/.env`:** `PUBLISHER_PRIVATE_KEY` is Hardhat account #0's key (printed when the chain starts). `GEMINI_API_KEY` is a free key from Google AI Studio. Set `AI_MODE=off` to run without AI; the system falls back to rule-based extraction.

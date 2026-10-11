@@ -3,6 +3,17 @@ import { useState, useEffect } from 'react';
 import { runAudit, getAuditLog } from '../api/registry.js';
 import { Card, Badge, Button, Hash, Spinner, Alert } from '../components/ui/index.js';
 
+// /api/audit-log returns `detail` as an object; React cannot render objects directly
+function formatDetail(detail) {
+  if (detail == null || detail === '') return '—';
+  if (typeof detail === 'string') return detail;
+  try {
+    return JSON.stringify(detail);
+  } catch {
+    return String(detail);
+  }
+}
+
 export default function Audit() {
   const [auditResult, setAuditResult] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
@@ -288,9 +299,9 @@ export default function Audit() {
                   </td>
                   <td
                     className="px-4 py-3 max-w-[280px] truncate text-slate-600"
-                    title={log.detail}
+                    title={formatDetail(log.detail)}
                   >
-                    {log.detail || '—'}
+                    {formatDetail(log.detail)}
                   </td>
                 </tr>
               ))}

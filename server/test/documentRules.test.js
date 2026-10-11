@@ -86,9 +86,19 @@ test('confirm fields: core validateRecord rules + future-date check, issuer norm
   const stored = { recordId: 'REC-000001', fileHash: '0x' + 'a'.repeat(64) };
   const check = (body) => validateConfirmFields(stored, body, { today });
 
-  const ok = check({ docType: 'SALARY_SLIP', issuer: '  Acme \t Pvt   Ltd ', date: '2026-10-11' });
+  const ok = check({
+    docType: 'SALARY_SLIP',
+    issuer: '  Acme \t Pvt   Ltd ',
+    date: '2026-10-11',
+    fields: { netPay: '30,000', payPeriod: 'Sept 2026', employeeName: 'Riya Sharma' },
+  });
   assert.deepEqual(ok.errors, {});
   assert.deepEqual(ok.record, { ...stored, docType: 'SALARY_SLIP', issuer: 'Acme Pvt Ltd', date: '2026-10-11' });
+  assert.deepEqual(ok.fields, [
+    { name: 'employeeName', value: 'RIYA SHARMA' },
+    { name: 'payPeriod', value: '2026-09' },
+    { name: 'netPay', value: '3000000' },
+  ]);
 
   const bad = check({ docType: 'PASSPORT', issuer: '   ', date: '2026-10-12' });
   assert.equal(bad.record, null);
@@ -100,6 +110,14 @@ test('confirm fields: core validateRecord rules + future-date check, issuer norm
   assert.match(check({ docType: 'OTHER', issuer: 'x'.repeat(121), date: '2026-01-01' }).errors.issuer, /120/);
   assert.ok(check(null).errors.docType);
   assert.ok(check({ docType: 'OTHER', issuer: 42, date: '2026-01-01' }).errors.issuer);
+
+  // Document fields: keyed "fields.<name>"; only checked once the docType is valid
+  const slip = { docType: 'SALARY_SLIP', issuer: 'Acme', date: '2026-01-01' };
+  assert.deepEqual(Object.keys(check(slip).errors).sort(), ['fields.employeeName', 'fields.netPay', 'fields.payPeriod']);
+  assert.deepEqual(check({ ...slip, fields: ['30,000'] }).errors, { fields: 'must be an object of field values' });
+  assert.match(check({ ...slip, docType: 'OTHER', fields: { netPay: '1' } }).errors['fields.netPay'], /not a field of OTHER/);
+  assert.deepEqual(Object.keys(check({ ...slip, docType: 'PASSPORT', fields: { x: 1 } }).errors), ['docType']);
+  assert.deepEqual(check({ ...slip, docType: 'OTHER' }).fields, []);
 });
 
 test('list filters are validated; unknown keys ignored; recordId supported', () => {

@@ -3,14 +3,15 @@ import { buildProof, getProof } from '@proofchain/core';
 import { db } from '../db/index.js';
 import { deployment } from '../lib/chain.js';
 import { AppError } from '../lib/errors.js';
-import { normalizationOf, parseTree, toCoreRecord } from './integrity.js';
+import { normalizationOf, parseTree, storedFields, toCoreRecord } from './integrity.js';
 
 const selectRecord = db.prepare('SELECT * FROM records WHERE record_id = ?');
 const selectBatch = db.prepare('SELECT * FROM batches WHERE batch_id = ?');
 
 /**
- * proof.json for one anchored record. Reads only the DB (no chain call). issuedAt is the batch's
- * published_at, so repeated downloads are byte-identical.
+ * proof.json (v2) for one anchored record: the record, its salted fields and its path to the
+ * batch root. Reads only the DB (no chain call). issuedAt is the batch's published_at, so repeated
+ * downloads are byte-identical.
  * @param {string} recordId
  * @returns {object} proof.json object (shape in CLAUDE.md "proof.json")
  * @throws {AppError} NOT_FOUND (404), NOT_ANCHORED (404), RECORD_INTEGRITY_FAILED (409) when the
@@ -34,6 +35,7 @@ export function buildRecordProof(recordId) {
   try {
     return buildProof({
       record: toCoreRecord(row),
+      fields: storedFields(row.record_id),
       batchId: batch.batch_id,
       leafIndex: row.leaf_index,
       leafCount: batch.leaf_count,

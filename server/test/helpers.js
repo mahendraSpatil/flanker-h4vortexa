@@ -1,5 +1,6 @@
 // Owner: Archit | Server test harness: temp DB + storage, fresh chain + deploy, app on a random port
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -85,11 +86,15 @@ export async function startServer({ tempDir, storageDir }) {
     server.once('error', reject);
   });
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  let recordCounter = 0;
+  // Next REC- number from the DB, so records uploaded through the API never collide with these
+  const lastRecordNumber = db
+    .prepare('SELECT MAX(CAST(SUBSTR(record_id, 5) AS INTEGER)) FROM records')
+    .pluck();
 
   return {
     db,
     chain,
+    baseUrl,
     pinned: { chainId: chain.deployment.chainId, contract: chain.deployment.address },
 
     /** fetch with X-Actor; returns { status, headers, text, body } (body = parsed JSON or null) */
@@ -105,14 +110,31 @@ export async function startServer({ tempDir, storageDir }) {
       return { status: res.status, headers: res.headers, text, body: parseJson(text) };
     },
 
-    /** Store a file and insert it as a confirmed (pending) record, as upload + confirm would. */
-    insertPending({ fileName, mime, bytes, docType, issuer, date }) {
-      recordCounter += 1;
-      const recordId = `REC-${String(recordCounter).padStart(6, '0')}`;
+    /**
+     * Store a file and insert it as a confirmed (pending) v2 record, as upload + confirm would:
+     * fields normalised in schema order, salted, fieldsRoot in the leaf.
+     * @param {{ fields?: Object<string, string> }} doc fields as typed (amounts in rupees)
+     */
+    insertPending({ fileName, mime, bytes, docType, issuer, date, fields: input = {} }) {
+      const recordId = `REC-${String((lastRecordNumber.get() ?? 0) + 1).padStart(6, '0')}`;
       const normalization = core.detectNormalization({ fileName, mime });
       const hash = core.fileHash(bytes, { normalization });
       fs.writeFileSync(path.join(storageDir, hash), bytes);
-      const record = { recordId, fileHash: hash, docType, issuer: core.normText(issuer), date };
+      const { fields: normalized, errors } = core.normalizeFields(docType, input);
+      if (Object.keys(errors).length > 0)
+        throw new Error(`fixture fields: ${JSON.stringify(errors)}`);
+      const fields = normalized.map((f) => ({
+        ...f,
+        salt: crypto.randomBytes(16).toString('hex'),
+      }));
+      const record = {
+        recordId,
+        fileHash: hash,
+        fieldsRoot: core.buildFieldTree(fields).root,
+        docType,
+        issuer: core.normText(issuer),
+        date,
+      };
       const now = new Date().toISOString();
       db.prepare(
         `INSERT INTO records (record_id, file_hash, file_name, mime, status, doc_type, issuer,
@@ -132,7 +154,11 @@ export async function startServer({ tempDir, storageDir }) {
         now,
         now,
       );
-      return { ...record, fileName, mime };
+      const insertField = db.prepare(
+        'INSERT INTO record_fields (record_id, idx, name, value, salt) VALUES (?, ?, ?, ?, ?)',
+      );
+      fields.forEach((f, idx) => insertField.run(recordId, idx, f.name, f.value, f.salt));
+      return { ...record, fields, fileName, mime };
     },
 
     readStoredFile(hash) {

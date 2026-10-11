@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { after, beforeEach, test } from 'node:test';
-import { canonicalJSON } from '@proofchain/core';
+import { buildFieldTree, canonicalJSON } from '@proofchain/core';
 import { auditRecorder, memoryStorage, openTestDb, sha256Hex, tinyPdf } from './documentHelpers.js';
 import { prepareTestEnv } from './helpers.js';
 
@@ -12,6 +12,8 @@ after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
 const { createDocumentRegistry } = await import('../src/services/documentRegistry.js');
 
 const NOW = new Date('2026-10-11T10:00:00');
+/** Salary-slip fields as a person types them on the confirm screen. */
+const SLIP_FIELDS = { employeeName: ' riya  sharma ', payPeriod: 'June 2026', netPay: 'Rs 46,200/-' };
 const SUGGESTIONS = {
   docType: 'SALARY_SLIP',
   issuer: 'Acme Technologies Pvt Ltd',
@@ -25,17 +27,22 @@ let storage;
 let audit;
 let registry;
 let extractCalls;
+let saltCounter;
+/** Deterministic salts so the expected fieldsRoot can be computed independently. */
+const testSalt = () => (++saltCounter).toString(16).padStart(32, '0');
 
 beforeEach(async () => {
   db = await openTestDb();
   storage = memoryStorage();
   audit = auditRecorder();
   extractCalls = [];
+  saltCounter = 0;
   registry = createDocumentRegistry({
     db,
     storage,
     logAction: audit.logAction,
     now: () => NOW,
+    salt: testSalt,
     extractText: async (buffer, mime) => {
       extractCalls.push(mime);
       return { text: 'Salary Slip\nACME TECHNOLOGIES PVT LTD\nDate: 30/06/2026', method: 'pdf-text' };
@@ -131,32 +138,82 @@ test('extraction failure still creates the draft, with a warning and fallback su
   assert.ok(result.warnings.some((w) => /extraction failed/i.test(w)));
 });
 
-test('confirm validates, builds the canonical record + leaf with core, -> pending', async () => {
+test('confirm validates, normalises + salts the fields, builds the v2 record + leaf with core, -> pending', async () => {
   const { recordId, fileHash } = await upload(tinyPdf('confirm'));
   const result = registry.confirm(
     recordId,
-    { docType: 'SALARY_SLIP', issuer: '  Acme   Technologies Pvt Ltd ', date: '2026-06-30' },
+    { docType: 'SALARY_SLIP', issuer: '  Acme   Technologies Pvt Ltd ', date: '2026-06-30', fields: SLIP_FIELDS },
     'Mahendra',
   );
 
-  const expectedRecord = { recordId, fileHash, docType: 'SALARY_SLIP', issuer: 'Acme Technologies Pvt Ltd', date: '2026-06-30' };
-  const canonical = canonicalJSON(expectedRecord);
-  assert.equal(
-    canonical,
-    `{"date":"2026-06-30","docType":"SALARY_SLIP","fileHash":"${fileHash}","issuer":"Acme Technologies Pvt Ltd","recordId":"${recordId}","v":1}`,
+  // Stored in schema order, normalised, each with its own 32-hex salt
+  const stored = db.prepare('SELECT idx, name, value, salt FROM record_fields WHERE record_id = ? ORDER BY idx').all(recordId);
+  assert.deepEqual(
+    stored.map(({ idx, name, value }) => [idx, name, value]),
+    [
+      [0, 'employeeName', 'RIYA SHARMA'],
+      [1, 'payPeriod', '2026-06'],
+      [2, 'netPay', '4620000'],
+    ],
   );
+  assert.ok(stored.every((f) => /^[0-9a-f]{32}$/.test(f.salt)), 'salts are 32 lowercase hex');
+  assert.equal(new Set(stored.map((f) => f.salt)).size, 3, 'one salt per field');
+
+  const fieldsRoot = buildFieldTree(stored.map(({ name, value, salt }) => ({ name, value, salt }))).root;
+  const canonical =
+    `{"date":"2026-06-30","docType":"SALARY_SLIP","fieldsRoot":"${fieldsRoot}","fileHash":"${fileHash}",` +
+    `"issuer":"Acme Technologies Pvt Ltd","recordId":"${recordId}","v":2}`;
+  assert.equal(canonicalJSON({ recordId, fileHash, fieldsRoot, docType: 'SALARY_SLIP', issuer: 'Acme Technologies Pvt Ltd', date: '2026-06-30' }), canonical);
   const expectedLeaf = sha256Hex(Buffer.concat([Buffer.from([0x00]), Buffer.from(canonical, 'utf8')]));
 
   assert.equal(result.status, 'pending');
-  assert.equal(result.leaf, expectedLeaf, 'leaf = SHA-256(0x00 || canonicalJSON(record))');
+  assert.equal(result.leaf, expectedLeaf, 'leaf = SHA-256(0x00 || canonicalJSON(v2 record))');
   assert.equal(result.canonical, canonical);
   assert.equal(result.record.status, 'pending');
   assert.equal(result.record.issuer, 'Acme Technologies Pvt Ltd', 'issuer stored normalised');
   assert.equal(result.record.leaf, expectedLeaf);
   assert.equal(result.record.confirmedBy, 'Mahendra');
+  assert.deepEqual(result.record.fields, [
+    { name: 'employeeName', label: 'Employee name', value: 'RIYA SHARMA', display: 'RIYA SHARMA' },
+    { name: 'payPeriod', label: 'Pay period', value: '2026-06', display: 'June 2026' },
+    { name: 'netPay', label: 'Net pay', value: '4620000', display: '₹46,200' },
+  ]);
+  assert.ok(!JSON.stringify(result.record).includes(stored[0].salt), 'salts never leave the DB via the record API');
 
   const confirmEntry = audit.entries.find((e) => e.action === 'CONFIRM');
-  assert.deepEqual(confirmEntry.detail.editedFields, [], 'normalised issuer equals the suggestion');
+  assert.deepEqual(confirmEntry.detail.editedFields, ['fields.employeeName', 'fields.payPeriod', 'fields.netPay'], 'the mock suggested no fields');
+  assert.equal(confirmEntry.detail.fieldsRoot, fieldsRoot);
+});
+
+test('confirm rejects missing or unreadable fields as 400 VALIDATION keyed fields.<name>', async () => {
+  const { recordId } = await upload(tinyPdf('fields'));
+  const err = await rejection(() =>
+    registry.confirm(
+      recordId,
+      { docType: 'SALARY_SLIP', issuer: 'Acme', date: '2026-06-30', fields: { employeeName: 'Riya', netPay: 'lots', bonus: '1' } },
+      'Mahendra',
+    ),
+  );
+  assert.equal(err.code, 'VALIDATION');
+  assert.deepEqual(Object.keys(err.details.fields).sort(), ['fields.bonus', 'fields.netPay', 'fields.payPeriod']);
+  assert.equal(err.details.fields['fields.payPeriod'], 'is required');
+  assert.equal(db.prepare('SELECT COUNT(*) FROM record_fields').pluck().get(), 0);
+  // A docType without fields needs none (its fieldsRoot is the empty root)
+  const offer = registry.confirm(recordId, { docType: 'OFFER_LETTER', issuer: 'Acme', date: '2026-06-30' }, 'x');
+  assert.deepEqual(offer.record.fields, []);
+  assert.match(offer.canonical, /"fieldsRoot":"0xe52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71"/);
+});
+
+test('re-confirming replaces the fields with freshly salted ones', async () => {
+  const { recordId } = await upload(tinyPdf('reconfirm'));
+  const body = { docType: 'SALARY_SLIP', issuer: 'Acme', date: '2026-06-30', fields: SLIP_FIELDS };
+  const first = registry.confirm(recordId, body, 'A');
+  const saltsBefore = db.prepare('SELECT salt FROM record_fields WHERE record_id = ?').pluck().all(recordId);
+  const second = registry.confirm(recordId, { ...body, fields: { ...SLIP_FIELDS, employeeId: 'ac-77' } }, 'A');
+  const rows = db.prepare('SELECT name, salt FROM record_fields WHERE record_id = ? ORDER BY idx').all(recordId);
+  assert.deepEqual(rows.map((r) => r.name), ['employeeName', 'employeeId', 'payPeriod', 'netPay']);
+  assert.ok(rows.every((r) => !saltsBefore.includes(r.salt)), 'new salts');
+  assert.notEqual(first.leaf, second.leaf);
 });
 
 test('confirm rejects bad fields with 400 VALIDATION and leaves the draft untouched', async () => {
@@ -173,7 +230,7 @@ test('confirm rejects bad fields with 400 VALIDATION and leaves the draft untouc
 
 test('pending records can be re-confirmed; anchored records cannot; unknown ids are 404', async () => {
   const { recordId } = await upload(tinyPdf('state'));
-  const body = { docType: 'SALARY_SLIP', issuer: 'Acme', date: '2026-06-30' };
+  const body = { docType: 'SALARY_SLIP', issuer: 'Acme', date: '2026-06-30', fields: SLIP_FIELDS };
   const first = registry.confirm(recordId, body, 'A');
   const second = registry.confirm(recordId, { ...body, issuer: 'Acme Technologies' }, 'B');
   assert.notEqual(first.leaf, second.leaf, 'changing a confirmed field changes the leaf');
@@ -195,8 +252,8 @@ test('list filters by status, docType, issuer substring (wildcards escaped), bat
   const a = await upload(tinyPdf('a'));
   const b = await upload(tinyPdf('b'));
   await upload(tinyPdf('c'));
-  registry.confirm(a.recordId, { docType: 'MARKSHEET', issuer: 'Deccan College', date: '2026-01-01' }, 'x');
-  registry.confirm(b.recordId, { docType: 'SALARY_SLIP', issuer: 'Acme 100% Pvt Ltd', date: '2026-01-01' }, 'x');
+  registry.confirm(a.recordId, { docType: 'MARKSHEET', issuer: 'Deccan College', date: '2026-01-01', fields: { studentName: 'Asha Rao' } }, 'x');
+  registry.confirm(b.recordId, { docType: 'SALARY_SLIP', issuer: 'Acme 100% Pvt Ltd', date: '2026-01-01', fields: SLIP_FIELDS }, 'x');
 
   assert.equal(registry.list({ status: 'draft' }).length, 1);
   assert.deepEqual(registry.list({ docType: 'MARKSHEET' }).map((r) => r.recordId), [a.recordId]);

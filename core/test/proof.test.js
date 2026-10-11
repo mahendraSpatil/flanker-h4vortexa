@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildProof, getProof, leafHash, validateProof } from '../src/index.js';
-import { ANCHOR, ISSUED_AT, VECTORS, makeBatch } from './fixtures.js';
+import { ANCHOR, ISSUED_AT, VECTORS, makeBatch, makeBatchV2 } from './fixtures.js';
 
 // The proof.json example in CLAUDE.md is the reference for field order
 function specExample() {
@@ -37,8 +37,12 @@ function argsFor(batch, leafIndex) {
 }
 
 test('buildProof key order matches the CLAUDE.md proof.json example at every level', () => {
-  const proof = makeBatch().proofs[2];
-  assert.deepEqual(keyShape(proof), keyShape(specExample()));
+  // The example is v2; a v1 proof is the same shape without fieldsRoot and fields
+  const example = specExample();
+  assert.equal(example.v, 2);
+  assert.deepEqual(keyShape(makeBatchV2().proofs[0]), keyShape(example));
+  const { fieldsRoot, fields, ...v1Example } = example;
+  assert.deepEqual(keyShape(makeBatch().proofs[2]), keyShape(v1Example));
 });
 
 test('buildProof is deterministic with a fixed issuedAt', () => {

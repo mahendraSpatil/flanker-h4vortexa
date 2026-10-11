@@ -11,11 +11,14 @@ export function upload(file) {
   return request('/api/documents', { method: 'POST', formData });
 }
 
-/** POST /api/documents/:recordId/confirm -> { record, leaf, status: "pending" } (400 VALIDATION). */
-export function confirm(recordId, { docType, issuer, date }) {
+/**
+ * POST /api/documents/:recordId/confirm -> { record, leaf, status: "pending", canonical } (400 VALIDATION).
+ * fields: the docType's document fields as typed, e.g. { netPay: "50,000" } (amounts in rupees).
+ */
+export function confirm(recordId, { docType, issuer, date, fields = {} }) {
   return request(`${recordPath(recordId)}/confirm`, {
     method: 'POST',
-    json: { docType, issuer, date },
+    json: { docType, issuer, date, fields },
   });
 }
 
